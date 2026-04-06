@@ -35,6 +35,13 @@ var RacsorUtils = (function () {
     return dates;
   }
 
+  function combineDateAndTime(dateValue, timeValue) {
+    var date = parseDate(dateValue);
+    var time = String(timeValue || '09:00').split(':');
+    date.setHours(Number(time[0] || 0), Number(time[1] || 0), 0, 0);
+    return date;
+  }
+
   function isWeekendRule(pickupDate, returnDate) {
     var start = parseDate(pickupDate);
     var end = parseDate(returnDate);
@@ -116,6 +123,7 @@ var RacsorUtils = (function () {
     toDateOnlyString: toDateOnlyString,
     diffDays: diffDays,
     enumerateDateStrings: enumerateDateStrings,
+    combineDateAndTime: combineDateAndTime,
     isWeekendRule: isWeekendRule,
     createId: createId,
     createContractNumber: createContractNumber,

@@ -21,14 +21,20 @@ var RacsorCalendarService = (function () {
       'Produits: ' + itemSummary,
       'Dossier: ' + folderUrl
     ].join('\n');
-    var pickupEvent = calendar.createAllDayEvent(
+    var pickupStart = RacsorUtils.combineDateAndTime(transaction.pickup_date, transaction.pickup_hour || '09:00');
+    var pickupEnd = new Date(pickupStart.getTime() + (30 * 60 * 1000));
+    var returnStart = RacsorUtils.combineDateAndTime(transaction.return_date, transaction.return_hour || '09:00');
+    var returnEnd = new Date(returnStart.getTime() + (30 * 60 * 1000));
+    var pickupEvent = calendar.createEvent(
       '[Retrait] ' + transaction.contract_number + ' - ' + transaction.client_full_name,
-      RacsorUtils.parseDate(transaction.pickup_date),
+      pickupStart,
+      pickupEnd,
       { description: description }
     );
-    var returnEvent = calendar.createAllDayEvent(
+    var returnEvent = calendar.createEvent(
       '[Retour] ' + transaction.contract_number + ' - ' + transaction.client_full_name,
-      RacsorUtils.parseDate(transaction.return_date),
+      returnStart,
+      returnEnd,
       { description: description }
     );
     return {

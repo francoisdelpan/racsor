@@ -28,6 +28,9 @@ var RacsorPricingService = (function () {
     var prices = RacsorRepository.getAll(RacsorConfig.SHEETS.PRICES).filter(function (item) {
       return String(item.is_active) !== 'false';
     });
+    var pricingRules = RacsorRepository.getAll(RacsorConfig.SHEETS.PRICING_RULES).filter(function (item) {
+      return String(item.is_active) !== 'false';
+    });
     var ruleCode = getRuleCode(payload.pickup_date, payload.return_date);
     var days = RacsorUtils.diffDays(payload.pickup_date, payload.return_date);
 
@@ -47,7 +50,7 @@ var RacsorPricingService = (function () {
       var price = prices.filter(function (entry) {
         return entry.product_id === item.product_id;
       }).find(function (entry) {
-        var rule = RacsorRepository.findOneBy(RacsorConfig.SHEETS.PRICING_RULES, function (candidate) {
+        var rule = pricingRules.find(function (candidate) {
           return candidate.id === entry.pricing_rule_id;
         });
         return rule && rule.code === ruleCode;
@@ -55,6 +58,9 @@ var RacsorPricingService = (function () {
       if (!price) {
         throw new Error('Tarif manquant pour ' + product.name + ' et la regle ' + ruleCode);
       }
+      var selectedRule = pricingRules.find(function (candidate) {
+        return candidate.id === price.pricing_rule_id;
+      });
       var quantity = Number(item.quantity || 0);
       var unitPrice = Number(price.unit_price_ttc || 0);
       var lineAmount = ruleCode === 'WEEKEND' ? unitPrice * quantity : unitPrice * quantity * days;
@@ -65,6 +71,9 @@ var RacsorPricingService = (function () {
         product_label_snapshot: product.name,
         quantity: quantity,
         pricing_rule_id: price.pricing_rule_id,
+        pricing_rule_code: selectedRule ? selectedRule.code : ruleCode,
+        pricing_label_snapshot: selectedRule ? selectedRule.label : ruleCode,
+        charged_days: ruleCode === 'WEEKEND' ? '' : days,
         unit_price_ttc: unitPrice,
         line_amount_ttc: lineAmount,
         deposit_unit_amount: depositUnit,

@@ -29,33 +29,38 @@ var RacsorDriveService = (function () {
       var file = DriveApp.getFileById(settings.contractTemplateId).makeCopy(fileName, folder);
       var doc = DocumentApp.openById(file.getId());
       var body = doc.getBody();
+      var itemLines = buildItemLines_(items);
       body.replaceText('{{CONTRACT_NUMBER}}', transaction.contract_number);
-      body.replaceText('{{CLIENT_NAME}}', transaction.client_full_name);
+      body.replaceText('{{CLIENT_NAME}}', transaction.client_first_name || '');
+      body.replaceText('{{CLIENT_SURNAME}}', transaction.client_last_name || '');
       body.replaceText('{{CLIENT_PHONE}}', transaction.client_phone || '');
       body.replaceText('{{CLIENT_EMAIL}}', transaction.client_email || '');
+      body.replaceText('{{CLIENT_ADDRESS}}', transaction.client_address || '');
+      body.replaceText('{{CLIENT_ZIPCITY}}', transaction.client_zipcity || '');
       body.replaceText('{{PICKUP_DATE}}', transaction.pickup_date);
+      body.replaceText('{{PICKUP_HOUR}}', transaction.pickup_hour || '');
       body.replaceText('{{RETURN_DATE}}', transaction.return_date);
+      body.replaceText('{{RETURN_HOUR}}', transaction.return_hour || '');
       body.replaceText('{{TOTAL_AMOUNT_TTC}}', String(transaction.total_amount_ttc));
+      body.replaceText('{{TOTAL}}', String(transaction.total_amount_ttc));
       body.replaceText('{{TOTAL_DEPOSIT_AMOUNT}}', String(transaction.total_deposit_amount));
-      body.replaceText('{{ITEMS}}', items.map(function (item) {
-        return '- ' + item.product_label_snapshot + ' x ' + item.quantity + ' : ' + item.line_amount_ttc + ' EUR TTC';
-      }).join('\n'));
+      body.replaceText('{{ITEMS}}', itemLines);
       doc.saveAndClose();
       return { id: file.getId(), name: file.getName(), url: file.getUrl() };
     }
 
     var lines = [
       'Contrat ' + transaction.contract_number,
-      'Client: ' + transaction.client_full_name,
+      'Client: ' + transaction.client_first_name + ' ' + transaction.client_last_name,
       'Telephone: ' + (transaction.client_phone || ''),
       'Email: ' + (transaction.client_email || ''),
-      'Retrait: ' + transaction.pickup_date,
-      'Retour: ' + transaction.return_date,
+      'Adresse: ' + (transaction.client_address || ''),
+      'Code postal / Ville: ' + (transaction.client_zipcity || ''),
+      'Retrait: ' + transaction.pickup_date + ' ' + (transaction.pickup_hour || ''),
+      'Retour: ' + transaction.return_date + ' ' + (transaction.return_hour || ''),
       '',
       'Produits:',
-      items.map(function (item) {
-        return '- ' + item.product_label_snapshot + ' x ' + item.quantity + ' : ' + item.line_amount_ttc + ' EUR TTC';
-      }).join('\n'),
+      buildItemLines_(items),
       '',
       'Montant TTC: ' + transaction.total_amount_ttc,
       'Caution: ' + transaction.total_deposit_amount
@@ -63,6 +68,18 @@ var RacsorDriveService = (function () {
     var blob = Utilities.newBlob(lines, 'text/plain', fileName + '.txt');
     var textFile = folder.createFile(blob);
     return { id: textFile.getId(), name: textFile.getName(), url: textFile.getUrl() };
+  }
+
+  function buildItemLines_(items) {
+    return items.map(function (item) {
+      var ruleDetail = item.pricing_label_snapshot || item.pricing_rule_code || '';
+      var dayDetail = item.pricing_rule_code === 'WEEKEND' ? '' : ' - ' + item.charged_days + ' jour(s)';
+      return '- ' + item.product_label_snapshot
+        + ' | qte: ' + item.quantity
+        + ' | forfait: ' + ruleDetail
+        + dayDetail
+        + ' | total: ' + item.line_amount_ttc + ' EUR TTC';
+    }).join('\n');
   }
 
   function saveSignedDocument(transaction, filePayload) {
