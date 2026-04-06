@@ -1,5 +1,5 @@
 function doGet() {
-  return HtmlService.createTemplateFromFile('ui/Index')
+  return HtmlService.createTemplateFromFile('src/Index')
     .evaluate()
     .setTitle('RacsoR')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
