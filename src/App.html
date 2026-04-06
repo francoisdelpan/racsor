@@ -1,0 +1,576 @@
+<script>
+  const state = {
+    bootstrap: null,
+    currentView: 'dashboard',
+    currentContract: null,
+    selectedProductForLedger: null,
+    quotePreview: null
+  };
+
+  function runServer(fnName, ...args) {
+    return new Promise((resolve, reject) => {
+      google.script.run
+        .withSuccessHandler(resolve)
+        .withFailureHandler(error => reject(new Error(error.message || error)))
+        [fnName](...args);
+    });
+  }
+
+  async function boot() {
+    setStatus('Chargement des donnees...');
+    state.bootstrap = await runServer('getAppBootstrapData');
+    render();
+    setStatus('Application prete.');
+  }
+
+  function setStatus(message) {
+    const el = document.getElementById('status-line');
+    if (el) {
+      el.textContent = message;
+    }
+  }
+
+  function formatCurrency(value) {
+    return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(Number(value || 0));
+  }
+
+  function render() {
+    const app = document.getElementById('app');
+    const user = state.bootstrap.user;
+    app.innerHTML = `
+      <div class="shell">
+        <header class="topbar">
+          <div class="brand">
+            <div class="brand-mark"></div>
+            <div>
+              <h1>RacsoR</h1>
+              <p>Rental Assets & Contract System</p>
+            </div>
+          </div>
+          <div class="topbar-meta">
+            <strong>${escapeHtml(user.role)}</strong> · ${escapeHtml(user.email || 'Utilisateur non resolu')}
+          </div>
+        </header>
+        <div class="layout">
+          <aside class="sidebar">
+            ${navButton('dashboard', 'Dashboard')}
+            ${navButton('sav', 'SAV')}
+            ${navButton('drive', 'Drive')}
+            ${user.role === 'RESP' ? navButton('admin', 'Admin') : ''}
+          </aside>
+          <main class="content">
+            <div id="status-line" class="status-line"></div>
+            ${renderView()}
+          </main>
+        </div>
+      </div>
+    `;
+  }
+
+  function navButton(view, label) {
+    const active = state.currentView === view ? 'is-active' : '';
+    return `<button class="nav-button ${active}" onclick="switchView('${view}')">${label}</button>`;
+  }
+
+  function renderView() {
+    switch (state.currentView) {
+      case 'sav':
+        return renderSavView();
+      case 'drive':
+        return renderDriveView();
+      case 'admin':
+        return renderAdminView();
+      default:
+        return renderDashboardView();
+    }
+  }
+
+  function renderDashboardView() {
+    const dashboard = state.bootstrap.dashboard;
+    return `
+      <section class="panel">
+        <div class="panel-title">
+          <h2>Dashboard</h2>
+          <span class="muted">Stock theorique du ${dashboard.today}</span>
+        </div>
+        <div class="kpis">
+          <div class="kpi kpi-blue"><p>Produits suivis</p><h3>${dashboard.stock.length}</h3></div>
+          <div class="kpi kpi-orange"><p>Retraits a venir</p><h3>${dashboard.pickups.length}</h3></div>
+          <div class="kpi kpi-green"><p>Retours a venir</p><h3>${dashboard.returns.length}</h3></div>
+          <div class="kpi kpi-red"><p>Alertes ouvertes</p><h3>${dashboard.incidents.length + dashboard.late.length}</h3></div>
+        </div>
+        <div class="grid-2">
+          <div class="panel">
+            <div class="panel-title"><h3>Stock du jour</h3></div>
+            ${renderStockTable(dashboard.stock)}
+          </div>
+          <div class="panel">
+            <div class="panel-title"><h3>Retours et alertes</h3></div>
+            ${renderContractList(dashboard.returns.concat(dashboard.late).slice(0, 10))}
+          </div>
+        </div>
+      </section>
+      ${state.selectedProductForLedger ? renderLedgerPanel() : ''}
+    `;
+  }
+
+  function renderStockTable(stock) {
+    return `
+      <table>
+        <thead>
+          <tr><th>Produit</th><th>Disponible</th><th>Stock max</th><th></th></tr>
+        </thead>
+        <tbody>
+          ${stock.map(item => `
+            <tr>
+              <td>${escapeHtml(item.product_name)}</td>
+              <td>${item.available}</td>
+              <td>${item.stock_max}</td>
+              <td><button class="button button-secondary" onclick="openLedger('${item.product_id}')">Fiche stock</button></td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+  }
+
+  function renderContractList(items) {
+    if (!items.length) {
+      return '<p class="muted">Aucun element a afficher.</p>';
+    }
+    return `
+      <table>
+        <thead>
+          <tr><th>Contrat</th><th>Client</th><th>Date</th><th>Statut</th></tr>
+        </thead>
+        <tbody>
+          ${items.map(item => `
+            <tr>
+              <td>${escapeHtml(item.contract_number)}</td>
+              <td>${escapeHtml(item.client_full_name)}</td>
+              <td>${escapeHtml(item.pickup_date)} / ${escapeHtml(item.return_date)}</td>
+              <td><span class="tag tag-${escapeHtml(item.status)}">${escapeHtml(item.status)}</span></td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+  }
+
+  function renderSavView() {
+    return `
+      <section class="panel">
+        <div class="panel-title">
+          <h2>Creation de contrat</h2>
+        </div>
+        <form id="contract-form" onsubmit="event.preventDefault(); submitContractForm();">
+          <div class="form-grid">
+            <div class="field"><label>Prenom client</label><input name="client_first_name" required></div>
+            <div class="field"><label>Nom client</label><input name="client_last_name" required></div>
+            <div class="field"><label>Telephone</label><input name="client_phone"></div>
+            <div class="field"><label>Email</label><input name="client_email" type="email"></div>
+            <div class="field"><label>Date retrait</label><input name="pickup_date" type="date" required></div>
+            <div class="field"><label>Date retour</label><input name="return_date" type="date" required></div>
+            <div class="field field-full">
+              <label>Produits</label>
+              <div id="contract-items"></div>
+              <div class="button-row">
+                <button type="button" class="button button-secondary" onclick="addContractItemRow()">Ajouter un produit</button>
+                <button type="button" class="button button-secondary" onclick="previewQuote()">Previsualiser le montant</button>
+              </div>
+            </div>
+          </div>
+          <div class="quote-box" id="quote-preview">Aucun devis calcule.</div>
+          <div class="button-row" style="margin-top:16px;">
+            <button type="submit" class="button button-primary">Creer le contrat</button>
+          </div>
+        </form>
+      </section>
+      ${state.currentContract ? renderCurrentContractPanel() : ''}
+    `;
+  }
+
+  function renderCurrentContractPanel() {
+    const transaction = state.currentContract.transaction;
+    return `
+      <section class="panel">
+        <div class="panel-title">
+          <h2>Contrat courant</h2>
+          <span class="tag tag-${escapeHtml(transaction.status)}">${escapeHtml(transaction.status)}</span>
+        </div>
+        <p><strong>${escapeHtml(transaction.contract_number)}</strong> · ${escapeHtml(transaction.client_full_name)}</p>
+        <p class="muted">Montant TTC: ${formatCurrency(transaction.total_amount_ttc)} · Caution: ${formatCurrency(transaction.total_deposit_amount)}</p>
+        <p class="muted">
+          ${transaction.drive_folder_url ? `<a href="${escapeHtml(transaction.drive_folder_url)}" target="_blank">Ouvrir le dossier Drive</a>` : 'Dossier Drive non configure'}
+          ${transaction.generated_contract_url ? ` · <a href="${escapeHtml(transaction.generated_contract_url)}" target="_blank">Contrat genere</a>` : ''}
+          ${transaction.signed_contract_url ? ` · <a href="${escapeHtml(transaction.signed_contract_url)}" target="_blank">Contrat signe</a>` : ''}
+        </p>
+        <div class="inline-actions">
+          <button class="button button-secondary" onclick="document.getElementById('signed-upload').click()">Televerser contrat signe</button>
+          <input id="signed-upload" class="hidden" type="file" onchange="uploadSignedContract(event)">
+          <button class="button button-danger" onclick="cancelCurrentContract()">Annuler le contrat</button>
+        </div>
+      </section>
+    `;
+  }
+
+  function renderDriveView() {
+    const contract = state.currentContract;
+    return `
+      <section class="panel">
+        <div class="panel-title"><h2>Workflow Drive</h2></div>
+        <div class="button-row">
+          <input id="drive-contract-number" placeholder="Numero de contrat">
+          <button class="button button-primary" onclick="searchContract()">Rechercher</button>
+        </div>
+      </section>
+      ${contract ? renderDriveContractPanel(contract) : ''}
+    `;
+  }
+
+  function renderDriveContractPanel(contract) {
+    const transaction = contract.transaction;
+    const states = state.bootstrap.referenceData.returnStates;
+    return `
+      <section class="panel">
+        <div class="panel-title">
+          <h2>${escapeHtml(transaction.contract_number)} · ${escapeHtml(transaction.client_full_name)}</h2>
+          <span class="tag tag-${escapeHtml(transaction.status)}">${escapeHtml(transaction.status)}</span>
+        </div>
+        <p class="muted">Retrait: ${escapeHtml(transaction.pickup_date)} · Retour: ${escapeHtml(transaction.return_date)}</p>
+        <div class="inline-actions">
+          <button class="button button-primary" onclick="markPickedUp()">Valider retrait</button>
+        </div>
+      </section>
+      <section class="panel">
+        <div class="panel-title"><h2>Saisie retour</h2></div>
+        <form id="return-form" onsubmit="event.preventDefault(); submitReturn();">
+          ${contract.items.map(item => `
+            <div class="panel" style="margin-bottom:14px;">
+              <h3>${escapeHtml(item.product_label_snapshot)} · Qté louee ${item.quantity}</h3>
+              <div class="state-grid">
+                ${states.map(stateItem => `
+                  <div class="field">
+                    <label>${escapeHtml(stateItem.label)}</label>
+                    <input type="number" min="0" value="${stateItem.label === 'conforme' ? item.quantity : 0}"
+                      data-product-id="${item.product_id}"
+                      data-state-id="${stateItem.id}"
+                      data-state-label="${escapeHtml(stateItem.label)}">
+                  </div>
+                `).join('')}
+              </div>
+              <div class="field" style="margin-top:12px;">
+                <label>Commentaire</label>
+                <textarea data-comment-product-id="${item.product_id}"></textarea>
+              </div>
+            </div>
+          `).join('')}
+          <button class="button button-primary" type="submit">Enregistrer le retour</button>
+        </form>
+      </section>
+    `;
+  }
+
+  function renderAdminView() {
+    const ref = state.bootstrap.referenceData;
+    return `
+      <section class="panel">
+        <div class="panel-title"><h2>Admin</h2></div>
+        <div class="grid-2">
+          <div class="panel">
+            <div class="panel-title"><h3>Produits</h3></div>
+            <table>
+              <thead><tr><th>Nom</th><th>Stock</th><th>Caution</th></tr></thead>
+              <tbody>
+                ${ref.products.map(item => `<tr><td>${escapeHtml(item.name)}</td><td>${item.stock_max}</td><td>${formatCurrency(item.deposit_amount)}</td></tr>`).join('')}
+              </tbody>
+            </table>
+          </div>
+          <div class="panel">
+            <div class="panel-title"><h3>Etats retour</h3></div>
+            <table>
+              <thead><tr><th>Label</th><th>Ordre</th><th>Actif</th></tr></thead>
+              <tbody>
+                ${ref.returnStates.map(item => `<tr><td>${escapeHtml(item.label)}</td><td>${item.sort_order}</td><td>${String(item.is_active)}</td></tr>`).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    `;
+  }
+
+  function renderLedgerPanel() {
+    return `
+      <section class="panel">
+        <div class="panel-title">
+          <h2>Fiche de stock</h2>
+          <button class="button button-secondary" onclick="closeLedger()">Fermer</button>
+        </div>
+        <div id="ledger-content"><p class="muted">Chargement...</p></div>
+      </section>
+    `;
+  }
+
+  function switchView(view) {
+    state.currentView = view;
+    render();
+    setStatus('Vue ' + view + ' chargee.');
+    if (view === 'sav') {
+      ensureContractItems();
+    }
+  }
+
+  function ensureContractItems() {
+    const container = document.getElementById('contract-items');
+    if (!container || container.children.length) {
+      return;
+    }
+    addContractItemRow();
+  }
+
+  function addContractItemRow() {
+    const container = document.getElementById('contract-items');
+    const products = state.bootstrap.referenceData.products;
+    const row = document.createElement('div');
+    row.className = 'item-row';
+    row.innerHTML = `
+      <select>
+        ${products.map(item => `<option value="${item.id}">${escapeHtml(item.name)}</option>`).join('')}
+      </select>
+      <input type="number" min="1" value="1">
+      <button type="button" class="button button-secondary" onclick="this.parentNode.remove()">Supprimer</button>
+    `;
+    container.appendChild(row);
+  }
+
+  function collectContractPayload() {
+    const form = document.getElementById('contract-form');
+    const payload = {
+      client_first_name: form.client_first_name.value.trim(),
+      client_last_name: form.client_last_name.value.trim(),
+      client_phone: form.client_phone.value.trim(),
+      client_email: form.client_email.value.trim(),
+      pickup_date: form.pickup_date.value,
+      return_date: form.return_date.value,
+      items: Array.from(document.querySelectorAll('#contract-items .item-row')).map(row => ({
+        product_id: row.querySelector('select').value,
+        quantity: Number(row.querySelector('input').value || 0)
+      })).filter(item => item.quantity > 0)
+    };
+    return payload;
+  }
+
+  function previewQuote() {
+    const payload = collectContractPayload();
+    const productsMap = Object.fromEntries(state.bootstrap.referenceData.products.map(item => [item.id, item]));
+    const pricingRuleMap = Object.fromEntries(state.bootstrap.referenceData.pricingRules.map(item => [item.id, item]));
+    const isWeekend = isWeekendRule(payload.pickup_date, payload.return_date);
+    const start = new Date(payload.pickup_date);
+    const end = new Date(payload.return_date);
+    const days = Math.round((end - start) / 86400000);
+    let amount = 0;
+    let deposit = 0;
+    const targetRuleCode = isWeekend ? 'WEEKEND' : days <= 4 ? 'LTE_4_DAYS' : days <= 10 ? 'LTE_10_DAYS' : '';
+    payload.items.forEach(item => {
+      const product = productsMap[item.product_id];
+      if (!product) return;
+      const price = state.bootstrap.referenceData.prices.find(entry => {
+        const rule = pricingRuleMap[entry.pricing_rule_id];
+        return entry.product_id === item.product_id && rule && rule.code === targetRuleCode;
+      });
+      deposit += Number(product.deposit_amount || 0) * item.quantity;
+      if (price) {
+        amount += isWeekend
+          ? Number(price.unit_price_ttc || 0) * item.quantity
+          : Number(price.unit_price_ttc || 0) * item.quantity * days;
+      }
+    });
+    state.quotePreview = { isWeekend, days, amount, deposit };
+    document.getElementById('quote-preview').innerHTML = `
+      <strong>Controle rapide</strong><br>
+      Regle pressentie: ${isWeekend ? 'week-end' : days <= 4 ? '1 a 4 jours' : days <= 10 ? '5 a 10 jours' : 'invalide'}<br>
+      Duree calculee: ${days} jour(s)<br>
+      Montant estime: ${formatCurrency(amount)}<br>
+      Caution estimee: ${formatCurrency(deposit)}<br>
+      Le montant final sera valide cote serveur.
+    `;
+  }
+
+  async function submitContractForm() {
+    const payload = collectContractPayload();
+    setStatus('Creation du contrat en cours...');
+    try {
+      state.currentContract = await runServer('apiCreateContract', payload);
+      state.bootstrap.dashboard = await runServer('apiGetDashboardData');
+      render();
+      setStatus('Contrat cree: ' + state.currentContract.transaction.contract_number);
+    } catch (error) {
+      setStatus(error.message);
+    }
+  }
+
+  async function uploadSignedContract(event) {
+    const file = event.target.files[0];
+    if (!file || !state.currentContract) {
+      return;
+    }
+    setStatus('Televersement du contrat signe...');
+    const base64 = await fileToBase64(file);
+    try {
+      state.currentContract = await runServer('apiMarkContractSigned', state.currentContract.transaction.id, {
+        name: file.name,
+        mimeType: file.type,
+        base64
+      });
+      state.bootstrap.dashboard = await runServer('apiGetDashboardData');
+      render();
+      setStatus('Contrat signe enregistre.');
+    } catch (error) {
+      setStatus(error.message);
+    }
+  }
+
+  async function cancelCurrentContract() {
+    if (!state.currentContract) {
+      return;
+    }
+    setStatus('Annulation du contrat...');
+    try {
+      state.currentContract = await runServer('apiCancelContract', state.currentContract.transaction.id);
+      state.bootstrap.dashboard = await runServer('apiGetDashboardData');
+      render();
+      setStatus('Contrat annule.');
+    } catch (error) {
+      setStatus(error.message);
+    }
+  }
+
+  async function searchContract() {
+    const contractNumber = document.getElementById('drive-contract-number').value.trim();
+    if (!contractNumber) {
+      setStatus('Saisis un numero de contrat.');
+      return;
+    }
+    setStatus('Recherche du contrat...');
+    try {
+      state.currentContract = await runServer('apiFindContractByNumber', contractNumber);
+      render();
+      setStatus('Contrat trouve.');
+    } catch (error) {
+      setStatus(error.message);
+    }
+  }
+
+  async function markPickedUp() {
+    if (!state.currentContract) {
+      return;
+    }
+    setStatus('Validation du retrait...');
+    try {
+      state.currentContract = await runServer('apiMarkPickedUp', state.currentContract.transaction.id);
+      state.bootstrap.dashboard = await runServer('apiGetDashboardData');
+      render();
+      setStatus('Retrait valide.');
+    } catch (error) {
+      setStatus(error.message);
+    }
+  }
+
+  async function submitReturn() {
+    if (!state.currentContract) {
+      return;
+    }
+    const productGroups = {};
+    document.querySelectorAll('#return-form input[data-product-id]').forEach(input => {
+      const productId = input.dataset.productId;
+      if (!productGroups[productId]) {
+        productGroups[productId] = { product_id: productId, states: [], comment: '' };
+      }
+      productGroups[productId].states.push({
+        state_id: input.dataset.stateId,
+        state_label: input.dataset.stateLabel,
+        quantity: Number(input.value || 0)
+      });
+    });
+    document.querySelectorAll('#return-form textarea[data-comment-product-id]').forEach(textarea => {
+      productGroups[textarea.dataset.commentProductId].comment = textarea.value.trim();
+    });
+    setStatus('Enregistrement du retour...');
+    try {
+      state.currentContract = await runServer('apiRecordReturn', {
+        transaction_id: state.currentContract.transaction.id,
+        items: Object.values(productGroups)
+      });
+      state.bootstrap.dashboard = await runServer('apiGetDashboardData');
+      render();
+      setStatus('Retour enregistre.');
+    } catch (error) {
+      setStatus(error.message);
+    }
+  }
+
+  async function openLedger(productId) {
+    state.selectedProductForLedger = productId;
+    render();
+    setStatus('Chargement de la fiche de stock...');
+    try {
+      const ledger = await runServer('apiGetStockLedger', productId, state.bootstrap.dashboard.today, 14);
+      const target = document.getElementById('ledger-content');
+      target.innerHTML = `
+        <table>
+          <thead><tr><th>Date</th><th>Disponible</th><th>Mouvements</th></tr></thead>
+          <tbody>
+            ${ledger.map(day => `
+              <tr>
+                <td>${escapeHtml(day.date)}</td>
+                <td>${day.available}</td>
+                <td>${day.movements.map(m => `${escapeHtml(m.movement_type)} (${m.quantity_delta})`).join(', ') || '-'}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+      setStatus('Fiche de stock chargee.');
+    } catch (error) {
+      setStatus(error.message);
+    }
+  }
+
+  function closeLedger() {
+    state.selectedProductForLedger = null;
+    render();
+  }
+
+  function escapeHtml(value) {
+    return String(value || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  function fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result).split(',')[1]);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function isWeekendRule(startDate, endDate) {
+    if (!startDate || !endDate) {
+      return false;
+    }
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    const diff = Math.round((end - start) / 86400000);
+    return start.getDay() === 5 && end.getDay() === 1 && diff === 3;
+  }
+
+  boot().catch(error => {
+    document.getElementById('app').innerHTML = `<div class="panel"><h2>Erreur de chargement</h2><pre>${escapeHtml(error.message)}</pre></div>`;
+  });
+</script>
