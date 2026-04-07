@@ -609,22 +609,21 @@
     return `
       <section class="panel">
         <div class="panel-title"><h2>Inventaire</h2></div>
-        <div class="form-grid">
-          <div class="field">
-            <label>Date</label>
-            <input id="inventory-date" type="date" value="${state.inventoryDate || state.bootstrap.dashboard.today}">
-          </div>
-          <div class="field">
-            <label>Produit</label>
-            <select id="inventory-product">
-              ${state.bootstrap.referenceData.products.map(item => `<option value="${item.id}">${escapeHtml(item.name)}</option>`).join('')}
-            </select>
-          </div>
-          <div class="field">
-            <label>Qte</label>
-            <input id="inventory-qty" type="number" min="0" value="0">
-          </div>
+        <div class="field" style="max-width:240px;">
+          <label>Date</label>
+          <input id="inventory-date" type="date" value="${state.inventoryDate || state.bootstrap.dashboard.today}">
         </div>
+        <table style="margin-top:16px;">
+          <thead><tr><th>Produit</th><th>Qté inventaire</th></tr></thead>
+          <tbody>
+            ${state.bootstrap.referenceData.products.map(item => `
+              <tr>
+                <td>${escapeHtml(item.name)}</td>
+                <td><input data-inventory-product="${item.id}" type="number" min="0" placeholder="${item.stock_max}"></td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
         <div class="button-row" style="margin-top:16px;">
           <button class="button button-primary" onclick="submitInventory()">Enregistrer l'inventaire</button>
         </div>
@@ -675,24 +674,49 @@
     return `
       <section class="panel">
         <div class="panel-title"><h2>Admin</h2></div>
-        <div class="grid-2">
-          <div class="panel inset-panel">
-            <div class="panel-title"><h3>Produits</h3></div>
-            <table>
-              <thead><tr><th>Nom</th><th>Stock</th><th>Caution</th><th>Actif</th><th></th></tr></thead>
-              <tbody>
-                ${ref.products.map(item => `
-                  <tr>
-                    <td>${escapeHtml(item.name)}</td>
-                    <td><input data-admin-product-stock="${item.id}" type="number" value="${item.stock_max}"></td>
-                    <td><input data-admin-product-deposit="${item.id}" type="number" step="0.01" value="${parseNumeric(item.deposit_amount)}"></td>
-                    <td><input data-admin-product-active="${item.id}" type="checkbox" ${String(item.is_active) === 'false' ? '' : 'checked'}></td>
-                    <td><button class="button button-secondary" onclick="saveProductAdmin('${item.id}')">Sauver</button></td>
-                  </tr>
-                `).join('')}
-              </tbody>
-            </table>
+        <div class="panel inset-panel">
+          <div class="panel-title"><h3>Produits et tarifs</h3></div>
+          <div class="accordion-list">
+            ${ref.products.map(item => `
+              <details class="admin-accordion">
+                <summary>${escapeHtml(item.name)}</summary>
+                <div class="form-grid" style="margin-top:14px;">
+                  <div class="field"><label>Stock</label><input data-admin-product-stock="${item.id}" type="number" value="${item.stock_max}"></div>
+                  <div class="field"><label>Caution</label><input data-admin-product-deposit="${item.id}" type="number" step="0.01" value="${parseNumeric(item.deposit_amount)}"></div>
+                  <div class="field"><label>Actif</label><input data-admin-product-active="${item.id}" type="checkbox" ${String(item.is_active) === 'false' ? '' : 'checked'}></div>
+                </div>
+                <div class="button-row" style="margin-top:12px;">
+                  <button class="button button-secondary" onclick="saveProductAdmin('${item.id}')">Sauver le produit</button>
+                </div>
+                <table style="margin-top:14px;">
+                  <thead><tr><th>Regle</th><th>Prix TTC</th><th>Actif</th><th></th></tr></thead>
+                  <tbody>
+                    ${ref.prices.filter(price => price.product_id === item.id).map(price => `
+                      <tr>
+                        <td>${escapeHtml(findPricingRuleLabel(price.pricing_rule_id))}</td>
+                        <td><input data-admin-price="${price.id}" type="number" step="0.01" value="${parseNumeric(price.unit_price_ttc)}"></td>
+                        <td><input data-admin-price-active="${price.id}" type="checkbox" ${String(price.is_active) === 'false' ? '' : 'checked'}></td>
+                        <td><button class="button button-secondary" onclick="savePriceAdmin('${price.id}')">Sauver</button></td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+              </details>
+            `).join('')}
           </div>
+          <div class="panel inset-panel" style="margin-top:18px;">
+            <div class="panel-title"><h3>Ajouter un produit</h3></div>
+            <div class="form-grid">
+              <div class="field field-full"><label>Nom</label><input id="admin-new-product-name"></div>
+              <div class="field"><label>Stock</label><input id="admin-new-product-stock" type="number" min="0" value="0"></div>
+              <div class="field"><label>Caution</label><input id="admin-new-product-deposit" type="number" step="0.01" value="0"></div>
+            </div>
+            <div class="button-row" style="margin-top:12px;">
+              <button class="button button-primary" onclick="addProductAdmin()">Ajouter le produit</button>
+            </div>
+          </div>
+        </div>
+        <div class="grid-2">
           <div class="panel inset-panel">
             <div class="panel-title"><h3>Utilisateurs</h3></div>
             <table>
@@ -720,28 +744,11 @@
           </div>
         </div>
         <div class="panel inset-panel">
-          <div class="panel-title"><h3>Tarifs</h3></div>
-          <table>
-            <thead><tr><th>Produit</th><th>Regle</th><th>Prix TTC</th><th>Actif</th><th></th></tr></thead>
-            <tbody>
-              ${ref.prices.map(price => `
-                <tr>
-                  <td>${escapeHtml(findProductName(price.product_id))}</td>
-                  <td>${escapeHtml(findPricingRuleLabel(price.pricing_rule_id))}</td>
-                  <td><input data-admin-price="${price.id}" type="number" step="0.01" value="${parseNumeric(price.unit_price_ttc)}"></td>
-                  <td><input data-admin-price-active="${price.id}" type="checkbox" ${String(price.is_active) === 'false' ? '' : 'checked'}></td>
-                  <td><button class="button button-secondary" onclick="savePriceAdmin('${price.id}')">Sauver</button></td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
-        </div>
-        <div class="panel inset-panel">
           <div class="panel-title"><h3>Etats retour</h3></div>
             <table>
               <thead><tr><th>Label</th><th>Ordre</th><th>Actif</th></tr></thead>
               <tbody>
-                ${ref.returnStates.map(item => `<tr><td>${escapeHtml(item.label)}</td><td>${item.sort_order}</td><td>${String(item.is_active)}</td></tr>`).join('')}
+                ${ref.returnStates.map(item => `<tr><td>${escapeHtml(formatStateLabel(item.label))}</td><td>${item.sort_order}</td><td>${String(item.is_active)}</td></tr>`).join('')}
               </tbody>
             </table>
           </div>
@@ -1189,12 +1196,14 @@
   async function submitInventory() {
     const payload = {
       movement_date: document.getElementById('inventory-date').value,
-      product_id: document.getElementById('inventory-product').value,
-      quantity: Number(document.getElementById('inventory-qty').value || 0)
+      items: Array.from(document.querySelectorAll('[data-inventory-product]')).map(input => ({
+        product_id: input.dataset.inventoryProduct,
+        quantity: Number(input.value || 0)
+      })).filter(item => !Number.isNaN(item.quantity))
     };
     state.inventoryDate = payload.movement_date;
     try {
-      await runServer('apiRecordInventory', payload);
+      await runServer('apiRecordInventoryBulk', payload);
       await refreshDashboard();
       if (state.stockMatrix) {
         await loadStockMatrix();
@@ -1284,6 +1293,32 @@
     state.bootstrap.referenceData = await runServer('apiUpdatePriceAdmin', payload);
     render();
     setStatus('Tarif mis a jour.');
+  }
+
+  async function addProductAdmin() {
+    const payload = {
+      name: document.getElementById('admin-new-product-name').value.trim(),
+      stock_max: Number(document.getElementById('admin-new-product-stock').value || 0),
+      deposit_amount: parseNumeric(document.getElementById('admin-new-product-deposit').value)
+    };
+    if (!payload.name) {
+      setStatus('Nom produit requis.');
+      return;
+    }
+    state.bootstrap.referenceData = await runServer('apiAddProductAdmin', payload);
+    render();
+    setStatus('Produit ajoute.');
+  }
+
+  function formatStateLabel(value) {
+    const map = {
+      'conforme': 'Conforme',
+      'sale': 'Sale',
+      'abime': 'Abimé',
+      'casse': 'Cassé',
+      'manquant': 'Manquant'
+    };
+    return map[String(value || '').toLowerCase()] || value;
   }
 
   function escapeHtml(value) {

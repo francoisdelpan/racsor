@@ -48,11 +48,14 @@ var RacsorStockService = (function () {
   }
 
   function getBalanceAsOf(productId, dateString) {
+    var product = getProducts_().find(function (item) {
+      return item.id === productId;
+    });
     var movements = sortMovements_(getAllMovements_()).filter(function (movement) {
       return movement.product_id === productId && movement.movement_date <= dateString;
     });
     if (!movements.length) {
-      return 0;
+      return product ? Number(product.stock_max || 0) : 0;
     }
     return Number(movements[movements.length - 1].balance_after || 0);
   }
@@ -126,6 +129,27 @@ var RacsorStockService = (function () {
       quantity_delta: delta,
       balance_after: ''
     }]);
+    return getStockSnapshot(payload.movement_date);
+  }
+
+  function recordInventoryBulk(payload) {
+    var rows = [];
+    (payload.items || []).forEach(function (item) {
+      var currentBalance = getBalanceAsOf(item.product_id, payload.movement_date);
+      var targetQty = Number(item.quantity || 0);
+      var delta = targetQty - currentBalance;
+      rows.push({
+        movement_date: payload.movement_date,
+        product_id: item.product_id,
+        transaction_id: '',
+        movement_type: 'inventory',
+        quantity_delta: delta,
+        balance_after: ''
+      });
+    });
+    if (rows.length) {
+      appendMovements_(rows);
+    }
     return getStockSnapshot(payload.movement_date);
   }
 
@@ -205,6 +229,7 @@ var RacsorStockService = (function () {
     releaseReservation: releaseReservation,
     recordReturn: recordReturn,
     recordInventory: recordInventory,
+    recordInventoryBulk: recordInventoryBulk,
     getStockSnapshot: getStockSnapshot,
     getStockLedger: getStockLedger,
     getPeriodAvailability: getPeriodAvailability,

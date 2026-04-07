@@ -390,6 +390,28 @@
     padding: 10px 12px;
   }
 
+  .accordion-list {
+    display: grid;
+    gap: 12px;
+  }
+
+  .admin-accordion {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: 12px 14px;
+    background: #fff;
+  }
+
+  .admin-accordion summary {
+    cursor: pointer;
+    font-weight: 700;
+    list-style: none;
+  }
+
+  .admin-accordion summary::-webkit-details-marker {
+    display: none;
+  }
+
   .filter-dropdown summary {
     cursor: pointer;
     font-weight: 700;

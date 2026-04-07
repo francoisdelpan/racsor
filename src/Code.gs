@@ -90,3 +90,11 @@ function apiUpdatePriceAdmin(payload) {
 function apiRecordInventory(payload) {
   return RacsorStockService.recordInventory(payload);
 }
+
+function apiRecordInventoryBulk(payload) {
+  return RacsorStockService.recordInventoryBulk(payload);
+}
+
+function apiAddProductAdmin(payload) {
+  return RacsorContractService.addProductAdmin(payload);
+}

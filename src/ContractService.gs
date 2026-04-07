@@ -210,6 +210,21 @@ var RacsorContractService = (function () {
     return getReferenceData();
   }
 
+  function addProductAdmin(payload) {
+    var productId = RacsorUtils.createId('PROD');
+    RacsorRepository.append(RacsorConfig.SHEETS.PRODUCTS, [{
+      id: productId,
+      name: payload.name,
+      sku: payload.sku || '',
+      stock_max: payload.stock_max,
+      deposit_amount: payload.deposit_amount,
+      is_active: true,
+      created_at: RacsorUtils.nowIso(),
+      updated_at: RacsorUtils.nowIso()
+    }]);
+    return getReferenceData();
+  }
+
   function findContractByNumber(contractNumber) {
     var transaction = RacsorRepository.findOneBy(RacsorConfig.SHEETS.TRANSACTIONS, function (item) {
       return item.contract_number === contractNumber;
@@ -352,6 +367,7 @@ var RacsorContractService = (function () {
     upsertUser: upsertUser,
     updateProductAdmin: updateProductAdmin,
     updatePriceAdmin: updatePriceAdmin,
+    addProductAdmin: addProductAdmin,
     createContract: createContract,
     getContractById: getContractById,
     findContractByNumber: findContractByNumber,
