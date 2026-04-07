@@ -3,7 +3,7 @@ var RacsorPricingService = (function () {
     if (RacsorUtils.isWeekendRule(pickupDate, returnDate)) {
       return 'WEEKEND';
     }
-    var days = RacsorUtils.diffDays(pickupDate, returnDate);
+    var days = RacsorUtils.inclusiveDays(pickupDate, returnDate);
     if (days <= 0) {
       throw new Error('La date de retour doit etre posterieure a la date de retrait.');
     }
@@ -32,7 +32,7 @@ var RacsorPricingService = (function () {
       return String(item.is_active) !== 'false';
     });
     var ruleCode = getRuleCode(payload.pickup_date, payload.return_date);
-    var days = RacsorUtils.diffDays(payload.pickup_date, payload.return_date);
+    var days = RacsorUtils.inclusiveDays(payload.pickup_date, payload.return_date);
 
     var totals = {
       rule_code: ruleCode,

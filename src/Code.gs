@@ -54,3 +54,15 @@ function apiGetDashboardData() {
 function apiGetStockLedger(productId, startDate, days) {
   return RacsorStockService.getStockLedger(productId, startDate, days || 14);
 }
+
+function apiGetPeriodAvailability(pickupDate, returnDate) {
+  return RacsorStockService.getPeriodAvailability(pickupDate, returnDate);
+}
+
+function apiGetStockMatrix(startDate, days) {
+  return RacsorStockService.getStockMatrix(startDate, days || 45);
+}
+
+function apiListContractsByStatuses(statuses) {
+  return RacsorContractService.listContractsByStatuses(statuses || []);
+}

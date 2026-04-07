@@ -23,6 +23,10 @@ var RacsorUtils = (function () {
     return Math.round((end.getTime() - start.getTime()) / msPerDay);
   }
 
+  function inclusiveDays(startDate, endDate) {
+    return enumerateDateStrings(startDate, endDate).length;
+  }
+
   function enumerateDateStrings(startDate, endDate) {
     var start = parseDate(startDate);
     var end = parseDate(endDate);
@@ -122,6 +126,7 @@ var RacsorUtils = (function () {
     parseDate: parseDate,
     toDateOnlyString: toDateOnlyString,
     diffDays: diffDays,
+    inclusiveDays: inclusiveDays,
     enumerateDateStrings: enumerateDateStrings,
     combineDateAndTime: combineDateAndTime,
     isWeekendRule: isWeekendRule,

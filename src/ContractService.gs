@@ -50,7 +50,10 @@ var RacsorContractService = (function () {
       }).slice(0, 10),
       late: transactions.filter(function (item) {
         return item.status === 'late';
-      }).slice(0, 10)
+      }).slice(0, 10),
+      recentContracts: transactions.slice().sort(function (a, b) {
+        return String(b.created_at).localeCompare(String(a.created_at));
+      }).slice(0, 12).map(enrichTransactionFiles_)
     };
   }
 
@@ -62,7 +65,7 @@ var RacsorContractService = (function () {
       return item.contract_number;
     });
     var contractNumber = RacsorUtils.createContractNumber(existingNumbers);
-    var customerSlug = RacsorUtils.slugifyName((payload.client_last_name || '') + '_' + (payload.client_first_name || 'CLIENT'));
+    var customerSlug = RacsorUtils.slugifyName(payload.client_last_name || 'CLIENT');
     var folderName = contractNumber + '_' + customerSlug;
     var quote = RacsorPricingService.computeQuote(payload);
     RacsorStockService.assertAvailability(payload.items, payload.pickup_date, payload.return_date);
@@ -146,10 +149,24 @@ var RacsorContractService = (function () {
 
   function enrichTransactionFiles_(transaction) {
     var enriched = JSON.parse(JSON.stringify(transaction));
-    enriched.drive_folder_url = transaction.drive_folder_id ? DriveApp.getFolderById(transaction.drive_folder_id).getUrl() : '';
-    enriched.generated_contract_url = transaction.generated_contract_file_id ? DriveApp.getFileById(transaction.generated_contract_file_id).getUrl() : '';
-    enriched.signed_contract_url = transaction.signed_contract_file_id ? DriveApp.getFileById(transaction.signed_contract_file_id).getUrl() : '';
+    var folder = RacsorDriveService.getFolderSafe_(transaction.drive_folder_id);
+    var generatedFile = RacsorDriveService.getFileSafe_(transaction.generated_contract_file_id);
+    var signedFile = RacsorDriveService.getFileSafe_(transaction.signed_contract_file_id);
+    enriched.drive_folder_url = folder ? folder.getUrl() : '';
+    enriched.generated_contract_url = generatedFile ? generatedFile.getUrl() : '';
+    enriched.signed_contract_url = signedFile ? signedFile.getUrl() : '';
     return enriched;
+  }
+
+  function listContractsByStatuses(statuses) {
+    return RacsorRepository.getAll(RacsorConfig.SHEETS.TRANSACTIONS)
+      .filter(function (item) {
+        return statuses.indexOf(item.status) !== -1;
+      })
+      .sort(function (a, b) {
+        return String(a.pickup_date).localeCompare(String(b.pickup_date));
+      })
+      .map(enrichTransactionFiles_);
   }
 
   function findContractByNumber(contractNumber) {
@@ -164,6 +181,14 @@ var RacsorContractService = (function () {
 
   function markContractSigned(transactionId, filePayload) {
     var data = getContractById(transactionId);
+    if (!data.transaction.drive_folder_id) {
+      var folder = RacsorDriveService.ensureContractFolder(data.transaction.folder_name);
+      RacsorRepository.updateById(RacsorConfig.SHEETS.TRANSACTIONS, 'id', transactionId, {
+        drive_folder_id: folder.id,
+        updated_at: RacsorUtils.nowIso()
+      });
+      data = getContractById(transactionId);
+    }
     var file = RacsorDriveService.saveSignedDocument(data.transaction, filePayload);
     RacsorRepository.updateById(RacsorConfig.SHEETS.TRANSACTIONS, 'id', transactionId, {
       status: 'signed',
@@ -262,6 +287,7 @@ var RacsorContractService = (function () {
     getCurrentUserRole: getCurrentUserRole,
     getReferenceData: getReferenceData,
     getDashboardData: getDashboardData,
+    listContractsByStatuses: listContractsByStatuses,
     createContract: createContract,
     getContractById: getContractById,
     findContractByNumber: findContractByNumber,

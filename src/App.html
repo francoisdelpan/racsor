@@ -3,11 +3,35 @@
     bootstrap: null,
     currentView: 'dashboard',
     currentContract: null,
-    selectedProductForLedger: null,
-    quotePreview: null
+    pickupContract: null,
+    driveReturnContract: null,
+    savReturnContract: null,
+    stockMatrix: null,
+    stockMatrixStartDate: null,
+    stockMatrixHiddenProducts: {},
+    periodAvailability: [],
+    stockMatrixLoading: false,
+    periodAvailabilityLoading: false,
+    loadingCount: 0
   };
 
   function runServer(fnName, ...args) {
+    showLoader();
+    return new Promise((resolve, reject) => {
+      google.script.run
+        .withSuccessHandler(result => {
+          hideLoader();
+          resolve(result);
+        })
+        .withFailureHandler(error => {
+          hideLoader();
+          reject(new Error(error.message || error));
+        })
+        [fnName](...args);
+    });
+  }
+
+  function runServerBackground(fnName, ...args) {
     return new Promise((resolve, reject) => {
       google.script.run
         .withSuccessHandler(resolve)
@@ -21,6 +45,22 @@
     state.bootstrap = await runServer('getAppBootstrapData');
     render();
     setStatus('Application prete.');
+  }
+
+  function showLoader() {
+    state.loadingCount += 1;
+    const overlay = document.getElementById('global-loader');
+    if (overlay) {
+      overlay.classList.add('is-visible');
+    }
+  }
+
+  function hideLoader() {
+    state.loadingCount = Math.max(0, state.loadingCount - 1);
+    const overlay = document.getElementById('global-loader');
+    if (overlay && state.loadingCount === 0) {
+      overlay.classList.remove('is-visible');
+    }
   }
 
   function setStatus(message) {
@@ -37,14 +77,23 @@
   function render() {
     const app = document.getElementById('app');
     const user = state.bootstrap.user;
+    const logo = state.bootstrap.settings.logoUrl
+      ? `<img class="brand-logo-image" src="${escapeHtml(state.bootstrap.settings.logoUrl)}" alt="Logo Carrefour">`
+      : 'C';
     app.innerHTML = `
+      <div id="global-loader" class="loader-overlay ${state.loadingCount ? 'is-visible' : ''}">
+        <div class="loader-card">
+          <div class="loader-spinner"></div>
+          <p>Chargement...</p>
+        </div>
+      </div>
       <div class="shell">
         <header class="topbar">
           <div class="brand">
-            <div class="brand-mark"></div>
+            <div class="brand-mark">${logo}</div>
             <div>
               <h1>RacsoR</h1>
-              <p>Rental Assets & Contract System</p>
+              <p>Rental Assets & Contract System for Operations & Returns</p>
             </div>
           </div>
           <div class="topbar-meta">
@@ -53,10 +102,7 @@
         </header>
         <div class="layout">
           <aside class="sidebar">
-            ${navButton('dashboard', 'Dashboard')}
-            ${navButton('sav', 'SAV')}
-            ${navButton('drive', 'Drive')}
-            ${user.role === 'RESP' ? navButton('admin', 'Admin') : ''}
+            ${renderSidebar()}
           </aside>
           <main class="content">
             <div id="status-line" class="status-line"></div>
@@ -64,6 +110,41 @@
           </main>
         </div>
       </div>
+    `;
+    if (state.currentView === 'new-contract') {
+      ensureContractItems();
+      hydratePeriodAvailabilityUi();
+    }
+  }
+
+  function renderSidebar() {
+    const role = state.bootstrap.user.role;
+    return `
+      <div class="nav-group">
+        <div class="nav-group-title">Pilotage</div>
+        ${navButton('dashboard', 'Dashboard')}
+        ${navButton('stock', 'Fiches de stock')}
+      </div>
+      ${(role === 'RESP' || role === 'SAV') ? `
+        <div class="nav-group">
+          <div class="nav-group-title">SAV</div>
+          ${navButton('new-contract', 'Nouvelle location')}
+          ${navButton('sav-return', 'Retour SAV')}
+        </div>
+      ` : ''}
+      ${(role === 'RESP' || role === 'DRIVE') ? `
+        <div class="nav-group">
+          <div class="nav-group-title">Drive</div>
+          ${navButton('drive-pickup', 'Enlevement')}
+          ${navButton('drive-return', 'Retour DRIVE')}
+        </div>
+      ` : ''}
+      ${role === 'RESP' ? `
+        <div class="nav-group">
+          <div class="nav-group-title">Administration</div>
+          ${navButton('admin', 'Admin')}
+        </div>
+      ` : ''}
     `;
   }
 
@@ -74,10 +155,16 @@
 
   function renderView() {
     switch (state.currentView) {
-      case 'sav':
-        return renderSavView();
-      case 'drive':
-        return renderDriveView();
+      case 'new-contract':
+        return renderNewContractView();
+      case 'stock':
+        return renderStockView();
+      case 'drive-pickup':
+        return renderDrivePickupView();
+      case 'drive-return':
+        return renderDriveReturnView();
+      case 'sav-return':
+        return renderSavReturnView();
       case 'admin':
         return renderAdminView();
       default:
@@ -91,42 +178,46 @@
       <section class="panel">
         <div class="panel-title">
           <h2>Dashboard</h2>
-          <span class="muted">Stock theorique du ${dashboard.today}</span>
+          <div class="button-row">
+            <span class="muted">Stock theorique du ${dashboard.today}</span>
+            ${state.bootstrap.settings.calendarId ? `<a class="button button-secondary" href="https://calendar.google.com/calendar/u/0/r?cid=${encodeURIComponent(state.bootstrap.settings.calendarId)}" target="_blank">Ouvrir Calendar</a>` : ''}
+          </div>
         </div>
         <div class="kpis">
           <div class="kpi kpi-blue"><p>Produits suivis</p><h3>${dashboard.stock.length}</h3></div>
-          <div class="kpi kpi-orange"><p>Retraits a venir</p><h3>${dashboard.pickups.length}</h3></div>
+          <div class="kpi kpi-orange"><p>Enlevements a venir</p><h3>${dashboard.pickups.length}</h3></div>
           <div class="kpi kpi-green"><p>Retours a venir</p><h3>${dashboard.returns.length}</h3></div>
           <div class="kpi kpi-red"><p>Alertes ouvertes</p><h3>${dashboard.incidents.length + dashboard.late.length}</h3></div>
         </div>
         <div class="grid-2">
           <div class="panel">
             <div class="panel-title"><h3>Stock du jour</h3></div>
-            ${renderStockTable(dashboard.stock)}
+            ${renderStockSummaryTable(dashboard.stock)}
           </div>
           <div class="panel">
             <div class="panel-title"><h3>Retours et alertes</h3></div>
             ${renderContractList(dashboard.returns.concat(dashboard.late).slice(0, 10))}
           </div>
         </div>
+        <div class="panel">
+          <div class="panel-title"><h3>Derniers contrats crees</h3></div>
+          ${renderContractList(dashboard.recentContracts || [])}
+        </div>
       </section>
-      ${state.selectedProductForLedger ? renderLedgerPanel() : ''}
     `;
   }
 
-  function renderStockTable(stock) {
+  function renderStockSummaryTable(stock) {
     return `
       <table>
         <thead>
-          <tr><th>Produit</th><th>Disponible</th><th>Stock max</th><th></th></tr>
+          <tr><th>Produit</th><th>Disponible</th></tr>
         </thead>
         <tbody>
           ${stock.map(item => `
             <tr>
               <td>${escapeHtml(item.product_name)}</td>
               <td>${item.available}</td>
-              <td>${item.stock_max}</td>
-              <td><button class="button button-secondary" onclick="openLedger('${item.product_id}')">Fiche stock</button></td>
             </tr>
           `).join('')}
         </tbody>
@@ -141,7 +232,7 @@
     return `
       <table>
         <thead>
-          <tr><th>Contrat</th><th>Client</th><th>Date</th><th>Statut</th></tr>
+          <tr><th>Contrat</th><th>Client</th><th>Dates</th><th>Statut</th></tr>
         </thead>
         <tbody>
           ${items.map(item => `
@@ -157,11 +248,12 @@
     `;
   }
 
-  function renderSavView() {
+  function renderNewContractView() {
+    const datesSelected = hasContractDatesSelected();
     return `
       <section class="panel">
         <div class="panel-title">
-          <h2>Creation de contrat</h2>
+          <h2>Nouvelle location</h2>
         </div>
         <form id="contract-form" onsubmit="event.preventDefault(); submitContractForm();">
           <div class="form-grid">
@@ -171,9 +263,9 @@
             <div class="field field-full"><label>Code postal / Ville</label><input name="client_zipcity"></div>
             <div class="field"><label>Telephone</label><input name="client_phone"></div>
             <div class="field"><label>Email</label><input name="client_email" type="email"></div>
-            <div class="field"><label>Date retrait</label><input name="pickup_date" type="date" required></div>
+            <div class="field"><label>Date retrait</label><input name="pickup_date" type="date" required onchange="refreshPeriodAvailability()"></div>
             <div class="field"><label>Heure retrait</label><input name="pickup_hour" type="time" value="09:00" required></div>
-            <div class="field"><label>Date retour</label><input name="return_date" type="date" required></div>
+            <div class="field"><label>Date retour</label><input name="return_date" type="date" required onchange="refreshPeriodAvailability()"></div>
             <div class="field"><label>Heure retour</label><input name="return_hour" type="time" value="09:00" required></div>
             <div class="field field-full">
               <label>Produits</label>
@@ -184,13 +276,51 @@
               </div>
             </div>
           </div>
-          <div class="quote-box" id="quote-preview">Aucun devis calcule.</div>
+          <div class="quote-box" id="quote-preview">
+            ${datesSelected ? 'Selectionne les produits puis previsualise le montant.' : 'Selectionne d abord les dates pour afficher le stock theorique de la periode.'}
+          </div>
           <div class="button-row" style="margin-top:16px;">
-            <button type="submit" class="button button-primary">Creer le contrat</button>
+            <button type="submit" class="button button-primary" ${datesSelected ? '' : 'disabled'}>Creer le contrat</button>
           </div>
         </form>
       </section>
+      <section class="panel">
+        <div class="panel-title">
+          <h2>Stock theorique sur la periode</h2>
+          <span class="muted">Stock disponible sur la plage choisie</span>
+        </div>
+        <div id="period-availability-panel">
+          ${renderPeriodAvailability()}
+        </div>
+      </section>
       ${state.currentContract ? renderCurrentContractPanel() : ''}
+    `;
+  }
+
+  function renderPeriodAvailability() {
+    if (!hasContractDatesSelected()) {
+      return '<p class="muted">Choisis une date de retrait et une date de retour pour debloquer les quantites et afficher le stock theorique.</p>';
+    }
+    if (state.periodAvailabilityLoading) {
+      return '<p class="muted">Chargement du stock disponible...</p>';
+    }
+    if (!state.periodAvailability.length) {
+      return '<p class="muted">Calcul du stock theorique en attente...</p>';
+    }
+    return `
+      <table>
+        <thead>
+          <tr><th>Produit</th><th>Disponible</th></tr>
+        </thead>
+        <tbody>
+          ${state.periodAvailability.map(item => `
+            <tr>
+              <td>${escapeHtml(item.product_name)}</td>
+              <td>${item.available}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
     `;
   }
 
@@ -206,33 +336,75 @@
         <p class="muted">Montant TTC: ${formatCurrency(transaction.total_amount_ttc)} · Caution: ${formatCurrency(transaction.total_deposit_amount)}</p>
         <p class="muted">
           ${transaction.drive_folder_url ? `<a href="${escapeHtml(transaction.drive_folder_url)}" target="_blank">Ouvrir le dossier Drive</a>` : 'Dossier Drive non configure'}
-          ${transaction.generated_contract_url ? ` · <a href="${escapeHtml(transaction.generated_contract_url)}" target="_blank">Contrat genere</a>` : ''}
+          ${transaction.generated_contract_url ? ` · <a href="${escapeHtml(transaction.generated_contract_url)}" target="_blank">Imprimer le contrat</a>` : ''}
           ${transaction.signed_contract_url ? ` · <a href="${escapeHtml(transaction.signed_contract_url)}" target="_blank">Contrat signe</a>` : ''}
         </p>
         <div class="inline-actions">
           <button class="button button-secondary" onclick="document.getElementById('signed-upload').click()">Televerser contrat signe</button>
           <input id="signed-upload" class="hidden" type="file" onchange="uploadSignedContract(event)">
+          <button class="button button-secondary" onclick="endContractCreation()">Terminer la creation de contrat</button>
           <button class="button button-danger" onclick="cancelCurrentContract()">Annuler le contrat</button>
         </div>
       </section>
     `;
   }
 
-  function renderDriveView() {
-    const contract = state.currentContract;
+  function renderDrivePickupView() {
     return `
       <section class="panel">
-        <div class="panel-title"><h2>Workflow Drive</h2></div>
+        <div class="panel-title"><h2>Enlevement</h2></div>
         <div class="button-row">
-          <input id="drive-contract-number" placeholder="Numero de contrat">
-          <button class="button button-primary" onclick="searchContract()">Rechercher</button>
+          <input id="pickup-contract-number" placeholder="Numero de contrat">
+          <button class="button button-primary" onclick="searchContractForContext('pickup')">Rechercher</button>
         </div>
       </section>
-      ${contract ? renderDriveContractPanel(contract) : ''}
+      <section class="panel">
+        <div class="panel-title"><h2>Contrats prets au retrait</h2></div>
+        ${renderQuickContractPicker(state.bootstrap.dashboard.pickups.filter(item => item.status === 'signed'), 'pickup')}
+      </section>
+      ${state.pickupContract ? renderPickupContractPanel() : ''}
     `;
   }
 
-  function renderDriveContractPanel(contract) {
+  function renderPickupContractPanel() {
+    const transaction = state.pickupContract.transaction;
+    return `
+      <section class="panel">
+        <div class="panel-title">
+          <h2>${escapeHtml(transaction.contract_number)} · ${escapeHtml(transaction.client_full_name)}</h2>
+          <span class="tag tag-${escapeHtml(transaction.status)}">${escapeHtml(transaction.status)}</span>
+        </div>
+        <p class="muted">Retrait prevu: ${escapeHtml(transaction.pickup_date)} ${escapeHtml(transaction.pickup_hour || '')}</p>
+        <p class="muted">
+          ${transaction.signed_contract_url ? `<a href="${escapeHtml(transaction.signed_contract_url)}" target="_blank">Ouvrir le contrat signe</a>` : 'Contrat signe non disponible'}
+          ${transaction.drive_folder_url ? ` · <a href="${escapeHtml(transaction.drive_folder_url)}" target="_blank">Ouvrir le dossier</a>` : ''}
+        </p>
+        <div class="inline-actions">
+          <button class="button button-primary" onclick="markPickedUp()">Confirmer le depart des marchandises</button>
+        </div>
+      </section>
+    `;
+  }
+
+  function renderDriveReturnView() {
+    return `
+      <section class="panel">
+        <div class="panel-title"><h2>Retour DRIVE</h2></div>
+        <div class="button-row">
+          <input id="drive-return-contract-number" placeholder="Numero de contrat">
+          <button class="button button-primary" onclick="searchContractForContext('driveReturn')">Rechercher</button>
+        </div>
+      </section>
+      <section class="panel">
+        <div class="panel-title"><h2>Retours a controler</h2></div>
+        ${renderQuickContractPicker(state.bootstrap.dashboard.returns, 'driveReturn')}
+      </section>
+      ${state.driveReturnContract ? renderDriveReturnPanel() : ''}
+    `;
+  }
+
+  function renderDriveReturnPanel() {
+    const contract = state.driveReturnContract;
     const transaction = contract.transaction;
     const states = state.bootstrap.referenceData.returnStates;
     return `
@@ -241,16 +413,13 @@
           <h2>${escapeHtml(transaction.contract_number)} · ${escapeHtml(transaction.client_full_name)}</h2>
           <span class="tag tag-${escapeHtml(transaction.status)}">${escapeHtml(transaction.status)}</span>
         </div>
-        <p class="muted">Retrait: ${escapeHtml(transaction.pickup_date)} · Retour: ${escapeHtml(transaction.return_date)}</p>
-        <div class="inline-actions">
-          <button class="button button-primary" onclick="markPickedUp()">Valider retrait</button>
-        </div>
+        <p class="muted">Retour prevu: ${escapeHtml(transaction.return_date)} ${escapeHtml(transaction.return_hour || '')}</p>
       </section>
       <section class="panel">
-        <div class="panel-title"><h2>Saisie retour</h2></div>
+        <div class="panel-title"><h2>Controle qualite</h2></div>
         <form id="return-form" onsubmit="event.preventDefault(); submitReturn();">
           ${contract.items.map(item => `
-            <div class="panel" style="margin-bottom:14px;">
+            <div class="panel inset-panel">
               <h3>${escapeHtml(item.product_label_snapshot)} · Qté louee ${item.quantity}</h3>
               <div class="state-grid">
                 ${states.map(stateItem => `
@@ -275,13 +444,131 @@
     `;
   }
 
+  function renderSavReturnView() {
+    return `
+      <section class="panel">
+        <div class="panel-title"><h2>Retour SAV</h2></div>
+        <div class="button-row">
+          <input id="sav-return-contract-number" placeholder="Numero de contrat">
+          <button class="button button-primary" onclick="searchContractForContext('savReturn')">Rechercher</button>
+        </div>
+      </section>
+      <section class="panel">
+        <div class="panel-title"><h2>Dossiers a cloturer</h2></div>
+        ${renderQuickContractPicker(state.bootstrap.dashboard.returns.concat(state.bootstrap.dashboard.incidents), 'savReturn')}
+      </section>
+      ${state.savReturnContract ? renderSavReturnPanel() : ''}
+    `;
+  }
+
+  function renderSavReturnPanel() {
+    const contract = state.savReturnContract;
+    const transaction = contract.transaction;
+    return `
+      <section class="panel">
+        <div class="panel-title">
+          <h2>${escapeHtml(transaction.contract_number)} · ${escapeHtml(transaction.client_full_name)}</h2>
+          <span class="tag tag-${escapeHtml(transaction.status)}">${escapeHtml(transaction.status)}</span>
+        </div>
+        <p class="muted">Rendu le ${escapeHtml(transaction.return_date)} ${escapeHtml(transaction.return_hour || '')}</p>
+        <div class="grid-2">
+          <div class="panel inset-panel">
+            <div class="panel-title"><h3>Recap retour</h3></div>
+            ${renderReturnSummary(contract)}
+          </div>
+          <div class="panel inset-panel">
+            <div class="panel-title"><h3>Action SAV</h3></div>
+            <p class="muted">Cette vue sert a rendre la caution et cloturer administrativement le dossier.</p>
+            <div class="inline-actions">
+              <button class="button button-primary" onclick="closeSavContract()">Rendre la caution / cloturer</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    `;
+  }
+
+  function renderReturnSummary(contract) {
+    if (!contract.returns.length) {
+      return '<p class="muted">Aucun detail de retour saisi.</p>';
+    }
+    const stateMap = Object.fromEntries(state.bootstrap.referenceData.returnStates.map(item => [item.id, item.label]));
+    return `
+      <table>
+        <thead><tr><th>Produit</th><th>Etat</th><th>Qte</th><th>Commentaire</th></tr></thead>
+        <tbody>
+          ${contract.returns.map(item => `
+            <tr>
+              <td>${escapeHtml(findProductName(item.product_id))}</td>
+              <td>${escapeHtml(stateMap[item.state_id] || item.state_id)}</td>
+              <td>${item.quantity}</td>
+              <td>${escapeHtml(item.comment || '')}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+  }
+
+  function renderStockView() {
+    return `
+      <section class="panel">
+        <div class="panel-title">
+          <h2>Fiches de stock</h2>
+          <div class="button-row">
+            <input id="stock-start-date" type="date" value="${state.stockMatrixStartDate || state.bootstrap.dashboard.today}">
+            <button class="button button-primary" onclick="loadStockMatrix()">Charger</button>
+          </div>
+        </div>
+        <div id="stock-matrix-container">
+          ${renderStockMatrix()}
+        </div>
+      </section>
+    `;
+  }
+
+  function renderStockMatrix() {
+    if (!state.stockMatrix) {
+      return state.stockMatrixLoading ? '<p class="muted">Chargement de la fiche de stock...</p>' : '<p class="muted">Charge une periode pour afficher la matrice jour par jour.</p>';
+    }
+    const visibleProducts = state.stockMatrix.products.filter(product => !state.stockMatrixHiddenProducts[product.product_id]);
+    return `
+      <div class="product-toggle-list">
+        ${state.stockMatrix.products.map(product => `
+          <label class="toggle-pill">
+            <input type="checkbox" ${state.stockMatrixHiddenProducts[product.product_id] ? '' : 'checked'} onchange="toggleStockProduct('${product.product_id}')">
+            <span>${escapeHtml(product.product_name)}</span>
+          </label>
+        `).join('')}
+      </div>
+      <div class="table-scroll">
+        <table class="stock-matrix-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              ${visibleProducts.map(product => `<th>${escapeHtml(product.product_name)}</th>`).join('')}
+            </tr>
+          </thead>
+          <tbody>
+            ${state.stockMatrix.rows.map(row => `
+              <tr>
+                <td class="${row.is_monday ? 'is-monday' : ''} ${row.is_first_of_month ? 'is-month-start' : ''}">${escapeHtml(row.date)}</td>
+                ${visibleProducts.map(product => `<td>${row.products[product.product_id]}</td>`).join('')}
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
   function renderAdminView() {
     const ref = state.bootstrap.referenceData;
     return `
       <section class="panel">
         <div class="panel-title"><h2>Admin</h2></div>
         <div class="grid-2">
-          <div class="panel">
+          <div class="panel inset-panel">
             <div class="panel-title"><h3>Produits</h3></div>
             <table>
               <thead><tr><th>Nom</th><th>Stock</th><th>Caution</th></tr></thead>
@@ -290,7 +577,7 @@
               </tbody>
             </table>
           </div>
-          <div class="panel">
+          <div class="panel inset-panel">
             <div class="panel-title"><h3>Etats retour</h3></div>
             <table>
               <thead><tr><th>Label</th><th>Ordre</th><th>Actif</th></tr></thead>
@@ -304,15 +591,24 @@
     `;
   }
 
-  function renderLedgerPanel() {
+  function renderQuickContractPicker(items, context) {
+    if (!items.length) {
+      return '<p class="muted">Aucun contrat a afficher.</p>';
+    }
     return `
-      <section class="panel">
-        <div class="panel-title">
-          <h2>Fiche de stock</h2>
-          <button class="button button-secondary" onclick="closeLedger()">Fermer</button>
-        </div>
-        <div id="ledger-content"><p class="muted">Chargement...</p></div>
-      </section>
+      <table>
+        <thead><tr><th>Contrat</th><th>Client</th><th>Date</th><th></th></tr></thead>
+        <tbody>
+          ${items.map(item => `
+            <tr>
+              <td>${escapeHtml(item.contract_number)}</td>
+              <td>${escapeHtml(item.client_full_name)}</td>
+              <td>${escapeHtml(context === 'pickup' ? item.pickup_date : item.return_date)}</td>
+              <td><button class="button button-secondary" onclick="loadContractForContext('${context}', '${item.contract_number}')">Ouvrir</button></td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
     `;
   }
 
@@ -320,9 +616,17 @@
     state.currentView = view;
     render();
     setStatus('Vue ' + view + ' chargee.');
-    if (view === 'sav') {
-      ensureContractItems();
+    if (view === 'stock' && !state.stockMatrix) {
+      setStatus('Vue stock prete. Clique sur "Charger" pour afficher la matrice.');
     }
+  }
+
+  function hasContractDatesSelected() {
+    const form = document.getElementById('contract-form');
+    if (!form) {
+      return false;
+    }
+    return Boolean(form.pickup_date.value && form.return_date.value);
   }
 
   function ensureContractItems() {
@@ -336,13 +640,14 @@
   function addContractItemRow() {
     const container = document.getElementById('contract-items');
     const products = state.bootstrap.referenceData.products;
+    const disabled = hasContractDatesSelected() ? '' : 'disabled';
     const row = document.createElement('div');
     row.className = 'item-row';
     row.innerHTML = `
       <select>
         ${products.map(item => `<option value="${item.id}">${escapeHtml(item.name)}</option>`).join('')}
       </select>
-      <input type="number" min="1" value="1">
+      <input type="number" min="1" value="1" ${disabled}>
       <button type="button" class="button button-secondary" onclick="this.parentNode.remove()">Supprimer</button>
     `;
     container.appendChild(row);
@@ -350,7 +655,7 @@
 
   function collectContractPayload() {
     const form = document.getElementById('contract-form');
-    const payload = {
+    return {
       client_first_name: form.client_first_name.value.trim(),
       client_last_name: form.client_last_name.value.trim(),
       client_address: form.client_address.value.trim(),
@@ -366,7 +671,45 @@
         quantity: Number(row.querySelector('input').value || 0)
       })).filter(item => item.quantity > 0)
     };
-    return payload;
+  }
+
+  async function refreshPeriodAvailability() {
+    if (!hasContractDatesSelected()) {
+      state.periodAvailability = [];
+      updatePeriodAvailabilityUi();
+      return;
+    }
+    const form = document.getElementById('contract-form');
+    setStatus('Calcul du stock theorique sur la periode...');
+    state.periodAvailabilityLoading = true;
+    updatePeriodAvailabilityUi();
+    try {
+      state.periodAvailability = await runServerBackground('apiGetPeriodAvailability', form.pickup_date.value, form.return_date.value);
+      setStatus('Stock theorique de la periode calcule.');
+    } catch (error) {
+      setStatus(error.message);
+    } finally {
+      state.periodAvailabilityLoading = false;
+      updatePeriodAvailabilityUi();
+    }
+  }
+
+  function hydratePeriodAvailabilityUi() {
+    document.querySelectorAll('#contract-items .item-row input[type="number"]').forEach(input => {
+      input.disabled = !hasContractDatesSelected();
+    });
+    const submitButton = document.querySelector('#contract-form button[type="submit"]');
+    if (submitButton) {
+      submitButton.disabled = !hasContractDatesSelected();
+    }
+  }
+
+  function updatePeriodAvailabilityUi() {
+    const panel = document.getElementById('period-availability-panel');
+    if (panel) {
+      panel.innerHTML = renderPeriodAvailability();
+    }
+    hydratePeriodAvailabilityUi();
   }
 
   function previewQuote() {
@@ -374,9 +717,7 @@
     const productsMap = Object.fromEntries(state.bootstrap.referenceData.products.map(item => [item.id, item]));
     const pricingRuleMap = Object.fromEntries(state.bootstrap.referenceData.pricingRules.map(item => [item.id, item]));
     const isWeekend = isWeekendRule(payload.pickup_date, payload.return_date);
-    const start = new Date(payload.pickup_date);
-    const end = new Date(payload.return_date);
-    const days = Math.round((end - start) / 86400000);
+    const days = getInclusiveDays(payload.pickup_date, payload.return_date);
     let amount = 0;
     let deposit = 0;
     const targetRuleCode = isWeekend ? 'WEEKEND' : days <= 4 ? 'LTE_4_DAYS' : days <= 10 ? 'LTE_10_DAYS' : '';
@@ -389,12 +730,9 @@
       });
       deposit += Number(product.deposit_amount || 0) * item.quantity;
       if (price) {
-        amount += isWeekend
-          ? Number(price.unit_price_ttc || 0) * item.quantity
-          : Number(price.unit_price_ttc || 0) * item.quantity * days;
+        amount += isWeekend ? Number(price.unit_price_ttc || 0) * item.quantity : Number(price.unit_price_ttc || 0) * item.quantity * days;
       }
     });
-    state.quotePreview = { isWeekend, days, amount, deposit };
     document.getElementById('quote-preview').innerHTML = `
       <strong>Controle rapide</strong><br>
       Regle pressentie: ${isWeekend ? 'week-end' : days <= 4 ? '1 a 4 jours' : days <= 10 ? '5 a 10 jours' : 'invalide'}<br>
@@ -454,15 +792,23 @@
     }
   }
 
-  async function searchContract() {
-    const contractNumber = document.getElementById('drive-contract-number').value.trim();
+  async function searchContractForContext(context) {
+    const inputId = context === 'pickup' ? 'pickup-contract-number' : context === 'driveReturn' ? 'drive-return-contract-number' : 'sav-return-contract-number';
+    const contractNumber = document.getElementById(inputId).value.trim();
     if (!contractNumber) {
       setStatus('Saisis un numero de contrat.');
       return;
     }
+    await loadContractForContext(context, contractNumber);
+  }
+
+  async function loadContractForContext(context, contractNumber) {
     setStatus('Recherche du contrat...');
     try {
-      state.currentContract = await runServer('apiFindContractByNumber', contractNumber);
+      const contract = await runServer('apiFindContractByNumber', contractNumber);
+      if (context === 'pickup') state.pickupContract = contract;
+      if (context === 'driveReturn') state.driveReturnContract = contract;
+      if (context === 'savReturn') state.savReturnContract = contract;
       render();
       setStatus('Contrat trouve.');
     } catch (error) {
@@ -471,22 +817,22 @@
   }
 
   async function markPickedUp() {
-    if (!state.currentContract) {
+    if (!state.pickupContract) {
       return;
     }
     setStatus('Validation du retrait...');
     try {
-      state.currentContract = await runServer('apiMarkPickedUp', state.currentContract.transaction.id);
+      state.pickupContract = await runServer('apiMarkPickedUp', state.pickupContract.transaction.id);
       state.bootstrap.dashboard = await runServer('apiGetDashboardData');
       render();
-      setStatus('Retrait valide.');
+      setStatus('Depart des marchandises confirme.');
     } catch (error) {
       setStatus(error.message);
     }
   }
 
   async function submitReturn() {
-    if (!state.currentContract) {
+    if (!state.driveReturnContract) {
       return;
     }
     const productGroups = {};
@@ -506,8 +852,8 @@
     });
     setStatus('Enregistrement du retour...');
     try {
-      state.currentContract = await runServer('apiRecordReturn', {
-        transaction_id: state.currentContract.transaction.id,
+      state.driveReturnContract = await runServer('apiRecordReturn', {
+        transaction_id: state.driveReturnContract.transaction.id,
         items: Object.values(productGroups)
       });
       state.bootstrap.dashboard = await runServer('apiGetDashboardData');
@@ -518,36 +864,64 @@
     }
   }
 
-  async function openLedger(productId) {
-    state.selectedProductForLedger = productId;
-    render();
-    setStatus('Chargement de la fiche de stock...');
+  async function closeSavContract() {
+    if (!state.savReturnContract) {
+      return;
+    }
+    setStatus('Cloture du dossier...');
     try {
-      const ledger = await runServer('apiGetStockLedger', productId, state.bootstrap.dashboard.today, 14);
-      const target = document.getElementById('ledger-content');
-      target.innerHTML = `
-        <table>
-          <thead><tr><th>Date</th><th>Disponible</th><th>Mouvements</th></tr></thead>
-          <tbody>
-            ${ledger.map(day => `
-              <tr>
-                <td>${escapeHtml(day.date)}</td>
-                <td>${day.available}</td>
-                <td>${day.movements.map(m => `${escapeHtml(m.movement_type)} (${m.quantity_delta})`).join(', ') || '-'}</td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
-      `;
-      setStatus('Fiche de stock chargee.');
+      state.savReturnContract = await runServer('apiCloseContract', state.savReturnContract.transaction.id);
+      state.bootstrap.dashboard = await runServer('apiGetDashboardData');
+      render();
+      setStatus('Dossier clos.');
     } catch (error) {
       setStatus(error.message);
     }
   }
 
-  function closeLedger() {
-    state.selectedProductForLedger = null;
+  async function loadStockMatrix() {
+    const input = document.getElementById('stock-start-date');
+    const startDate = input ? input.value : state.bootstrap.dashboard.today;
+    setStatus('Chargement de la fiche de stock...');
+    try {
+      state.stockMatrixStartDate = startDate || state.bootstrap.dashboard.today;
+      state.stockMatrixLoading = true;
+      const container = document.getElementById('stock-matrix-container');
+      if (container) {
+        container.innerHTML = renderStockMatrix();
+      }
+      state.stockMatrix = await runServerBackground('apiGetStockMatrix', startDate || state.bootstrap.dashboard.today, 45);
+      render();
+      setStatus('Fiche de stock chargee.');
+    } catch (error) {
+      setStatus(error.message);
+    } finally {
+      state.stockMatrixLoading = false;
+      const container = document.getElementById('stock-matrix-container');
+      if (container) {
+        container.innerHTML = renderStockMatrix();
+      }
+    }
+  }
+
+  function endContractCreation() {
+    state.currentContract = null;
+    state.periodAvailability = [];
     render();
+    setStatus('Creation de contrat terminee.');
+  }
+
+  function toggleStockProduct(productId) {
+    state.stockMatrixHiddenProducts[productId] = !state.stockMatrixHiddenProducts[productId];
+    const container = document.getElementById('stock-matrix-container');
+    if (container) {
+      container.innerHTML = renderStockMatrix();
+    }
+  }
+
+  function findProductName(productId) {
+    const product = state.bootstrap.referenceData.products.find(item => item.id === productId);
+    return product ? product.name : productId;
   }
 
   function escapeHtml(value) {
@@ -576,6 +950,15 @@
     const end = new Date(endDate);
     const diff = Math.round((end - start) / 86400000);
     return start.getDay() === 5 && end.getDay() === 1 && diff === 3;
+  }
+
+  function getInclusiveDays(startDate, endDate) {
+    if (!startDate || !endDate) {
+      return 0;
+    }
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    return Math.round((end - start) / 86400000) + 1;
   }
 
   boot().catch(error => {

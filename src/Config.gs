@@ -76,6 +76,7 @@ var RacsorConfig = (function () {
       driveRootFolderId: props.getProperty('RACSOR_DRIVE_ROOT_FOLDER_ID') || '',
       contractTemplateId: props.getProperty('RACSOR_CONTRACT_TEMPLATE_ID') || '',
       calendarId: props.getProperty('RACSOR_CALENDAR_ID') || '',
+      logoUrl: props.getProperty('RACSOR_LOGO_URL') || '',
       appName: 'RacsoR'
     };
   }

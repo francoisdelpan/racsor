@@ -2,9 +2,9 @@ var RacsorDriveService = (function () {
   function getRootFolder() {
     var settings = RacsorConfig.getProjectSettings();
     if (!settings.driveRootFolderId) {
-      return null;
+      return getOrCreateDefaultRootFolder_();
     }
-    return DriveApp.getFolderById(settings.driveRootFolderId);
+    return getFolderSafe_(settings.driveRootFolderId) || getOrCreateDefaultRootFolder_();
   }
 
   function ensureContractFolder(folderName) {
@@ -22,11 +22,18 @@ var RacsorDriveService = (function () {
     if (!transaction.drive_folder_id) {
       return { id: '', name: '', url: '' };
     }
-    var folder = DriveApp.getFolderById(transaction.drive_folder_id);
+    var folder = getFolderSafe_(transaction.drive_folder_id);
+    if (!folder) {
+      throw new Error('Dossier Drive du contrat introuvable ou inaccessible.');
+    }
     var fileName = transaction.folder_name + '_autoGenerate';
 
     if (settings.contractTemplateId) {
-      var file = DriveApp.getFileById(settings.contractTemplateId).makeCopy(fileName, folder);
+      var templateFile = getFileSafe_(settings.contractTemplateId);
+      if (!templateFile) {
+        throw new Error('Template Google Docs introuvable ou inaccessible.');
+      }
+      var file = templateFile.makeCopy(fileName, folder);
       var doc = DocumentApp.openById(file.getId());
       var body = doc.getBody();
       var itemLines = buildItemLines_(items);
@@ -86,7 +93,10 @@ var RacsorDriveService = (function () {
     if (!transaction.drive_folder_id) {
       throw new Error('Drive root folder non configure.');
     }
-    var folder = DriveApp.getFolderById(transaction.drive_folder_id);
+    var folder = getFolderSafe_(transaction.drive_folder_id);
+    if (!folder) {
+      throw new Error('Dossier Drive du contrat introuvable ou inaccessible.');
+    }
     var contentType = filePayload.mimeType || 'application/octet-stream';
     var extension = filePayload.name && filePayload.name.indexOf('.') > -1 ? filePayload.name.split('.').pop() : 'bin';
     var blob = Utilities.newBlob(Utilities.base64Decode(filePayload.base64), contentType, transaction.folder_name + '_signed.' + extension);
@@ -94,9 +104,38 @@ var RacsorDriveService = (function () {
     return { id: file.getId(), name: file.getName(), url: file.getUrl() };
   }
 
+  function getFolderSafe_(folderId) {
+    if (!folderId) {
+      return null;
+    }
+    try {
+      return DriveApp.getFolderById(folderId);
+    } catch (error) {
+      return null;
+    }
+  }
+
+  function getOrCreateDefaultRootFolder_() {
+    var iterator = DriveApp.getFoldersByName('RacsoR_Contrats');
+    return iterator.hasNext() ? iterator.next() : DriveApp.createFolder('RacsoR_Contrats');
+  }
+
+  function getFileSafe_(fileId) {
+    if (!fileId) {
+      return null;
+    }
+    try {
+      return DriveApp.getFileById(fileId);
+    } catch (error) {
+      return null;
+    }
+  }
+
   return {
     ensureContractFolder: ensureContractFolder,
     createGeneratedContractFile: createGeneratedContractFile,
-    saveSignedDocument: saveSignedDocument
+    saveSignedDocument: saveSignedDocument,
+    getFolderSafe_: getFolderSafe_,
+    getFileSafe_: getFileSafe_
   };
 })();
