@@ -33,6 +33,25 @@ function seedDefaultData_() {
   if (!RacsorRepository.getAll(RacsorConfig.SHEETS.RETURN_STATES).length) {
     RacsorRepository.append(RacsorConfig.SHEETS.RETURN_STATES, RacsorConfig.DEFAULT_STATES);
   }
+
+  if (!RacsorRepository.getAll(RacsorConfig.SHEETS.STOCK_MOVEMENTS).length) {
+    initializeStockBase_();
+  }
+}
+
+function initializeStockBase_() {
+  var today = RacsorUtils.toDateOnlyString(new Date());
+  var rows = RacsorConfig.DEFAULT_PRODUCTS.map(function (product) {
+    return {
+      movement_date: today,
+      product_id: product.id,
+      transaction_id: '',
+      movement_type: 'inventory',
+      quantity_delta: Number(product.stock_max || 0),
+      balance_after: Number(product.stock_max || 0)
+    };
+  });
+  RacsorRepository.append(RacsorConfig.SHEETS.STOCK_MOVEMENTS, rows);
 }
 
 function seedDemoUsersIfMissing() {

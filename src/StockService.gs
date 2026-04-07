@@ -5,117 +5,136 @@ var RacsorStockService = (function () {
     });
   }
 
-  function buildAvailabilityContext_(startDate, endDate) {
+  function getAllMovements_() {
+    return RacsorRepository.getAll(RacsorConfig.SHEETS.STOCK_MOVEMENTS);
+  }
+
+  function sortMovements_(movements) {
+    return movements.slice().sort(function (a, b) {
+      var left = String(a.movement_date) + '|' + String(a.transaction_id || '') + '|' + String(a.movement_type || '');
+      var right = String(b.movement_date) + '|' + String(b.transaction_id || '') + '|' + String(b.movement_type || '');
+      return left.localeCompare(right);
+    });
+  }
+
+  function rebuildBalances_() {
     var products = getProducts_();
-    var dates = startDate && endDate ? RacsorUtils.enumerateDateStrings(startDate, endDate) : [];
-    var dateMap = {};
-    dates.forEach(function (dateString) {
-      dateMap[dateString] = true;
+    var balanceByProduct = {};
+    products.forEach(function (product) {
+      balanceByProduct[product.id] = 0;
     });
 
-    var movementIndex = {};
-    var movements = RacsorRepository.getAll(RacsorConfig.SHEETS.STOCK_MOVEMENTS);
-    movements.forEach(function (movement) {
-      if (dates.length && !dateMap[movement.movement_date]) {
-        return;
-      }
-      var key = movement.product_id + '|' + movement.movement_date;
-      movementIndex[key] = (movementIndex[key] || 0) + Number(movement.quantity_delta || 0);
+    var movements = sortMovements_(getAllMovements_()).map(function (movement) {
+      var productId = movement.product_id;
+      var delta = Number(movement.quantity_delta || 0);
+      balanceByProduct[productId] = Number(balanceByProduct[productId] || 0) + delta;
+      return {
+        movement_date: movement.movement_date,
+        product_id: movement.product_id,
+        transaction_id: movement.transaction_id || '',
+        movement_type: movement.movement_type,
+        quantity_delta: delta,
+        balance_after: balanceByProduct[productId]
+      };
     });
 
-    return {
-      products: products,
-      movementIndex: movementIndex
-    };
+    RacsorRepository.replaceAll(RacsorConfig.SHEETS.STOCK_MOVEMENTS, movements);
+    return movements;
   }
 
-  function getAvailabilityFromContext_(context, productId, dateString) {
-    var product = context.products.find(function (item) {
-      return item.id === productId;
+  function appendMovements_(rows) {
+    RacsorRepository.append(RacsorConfig.SHEETS.STOCK_MOVEMENTS, rows);
+    return rebuildBalances_();
+  }
+
+  function getBalanceAsOf(productId, dateString) {
+    var movements = sortMovements_(getAllMovements_()).filter(function (movement) {
+      return movement.product_id === productId && movement.movement_date <= dateString;
     });
-    if (!product) {
-      throw new Error('Produit introuvable: ' + productId);
+    if (!movements.length) {
+      return 0;
     }
-    var key = productId + '|' + dateString;
-    return Number(product.stock_max || 0) + Number(context.movementIndex[key] || 0);
+    return Number(movements[movements.length - 1].balance_after || 0);
   }
 
-  function getStockAvailabilityByDate(productId, dateString) {
-    var context = buildAvailabilityContext_(dateString, dateString);
-    return getAvailabilityFromContext_(context, productId, dateString);
-  }
-
-  function assertAvailability(items, pickupDate, returnDate) {
-    var dates = RacsorUtils.enumerateDateStrings(pickupDate, returnDate);
-    var context = buildAvailabilityContext_(pickupDate, returnDate);
-    (items || []).forEach(function (item) {
-      dates.forEach(function (dateString) {
-        var available = getAvailabilityFromContext_(context, item.product_id, dateString);
-        if (available < Number(item.quantity)) {
-          throw new Error('Stock insuffisant pour ' + item.product_id + ' le ' + dateString + ' (disponible: ' + available + ')');
-        }
-      });
-    });
-  }
-
-  function reserveStock(transactionId, status, items, pickupDate, returnDate) {
-    var dates = RacsorUtils.enumerateDateStrings(pickupDate, returnDate);
-    var records = [];
-    (items || []).forEach(function (item) {
-      dates.forEach(function (dateString) {
-        records.push({
-          id: RacsorUtils.createId('MOV'),
-          movement_date: dateString,
-          product_id: item.product_id,
-          transaction_id: transactionId,
-          movement_type: 'reservation',
-          quantity_delta: -Math.abs(Number(item.quantity)),
-          source_status: status,
-          note: 'Reservation de contrat',
-          created_at: RacsorUtils.nowIso()
-        });
-      });
-    });
-    RacsorRepository.append(RacsorConfig.SHEETS.STOCK_MOVEMENTS, records);
-  }
-
-  function releaseReservation(transactionId) {
-    var items = RacsorRepository.findBy(RacsorConfig.SHEETS.TRANSACTION_ITEMS, function (item) {
-      return item.transaction_id === transactionId;
-    });
-    var transaction = RacsorRepository.findOneBy(RacsorConfig.SHEETS.TRANSACTIONS, function (item) {
-      return item.id === transactionId;
-    });
-    if (!transaction) {
-      throw new Error('Contrat introuvable.');
-    }
-    var dates = RacsorUtils.enumerateDateStrings(transaction.pickup_date, transaction.return_date);
-    var records = [];
-    items.forEach(function (item) {
-      dates.forEach(function (dateString) {
-        records.push({
-          id: RacsorUtils.createId('MOV'),
-          movement_date: dateString,
-          product_id: item.product_id,
-          transaction_id: transactionId,
-          movement_type: 'reservation_cancel',
-          quantity_delta: Math.abs(Number(item.quantity)),
-          source_status: 'cancelled',
-          note: 'Annulation de reservation',
-          created_at: RacsorUtils.nowIso()
-        });
-      });
-    });
-    RacsorRepository.append(RacsorConfig.SHEETS.STOCK_MOVEMENTS, records);
-  }
-
-  function getStockSnapshot(dateString) {
-    var context = buildAvailabilityContext_(dateString, dateString);
-    return context.products.map(function (product) {
+  function getNegativeAlerts_() {
+    return getProducts_().map(function (product) {
       return {
         product_id: product.id,
         product_name: product.name,
-        available: getAvailabilityFromContext_(context, product.id, dateString)
+        available: getBalanceAsOf(product.id, RacsorUtils.toDateOnlyString(new Date()))
+      };
+    }).filter(function (item) {
+      return item.available < 0;
+    });
+  }
+
+  function reserveStock(transactionId, items, pickupDate) {
+    var rows = (items || []).map(function (item) {
+      return {
+        movement_date: pickupDate,
+        product_id: item.product_id,
+        transaction_id: transactionId,
+        movement_type: 'reservation',
+        quantity_delta: -Math.abs(Number(item.quantity || 0)),
+        balance_after: ''
+      };
+    });
+    appendMovements_(rows);
+  }
+
+  function releaseReservation(transactionId, pickupDate) {
+    var items = RacsorRepository.findBy(RacsorConfig.SHEETS.TRANSACTION_ITEMS, function (item) {
+      return item.transaction_id === transactionId;
+    });
+    var rows = items.map(function (item) {
+      return {
+        movement_date: pickupDate,
+        product_id: item.product_id,
+        transaction_id: transactionId,
+        movement_type: 'reservation',
+        quantity_delta: Math.abs(Number(item.quantity || 0)),
+        balance_after: ''
+      };
+    });
+    appendMovements_(rows);
+  }
+
+  function recordReturn(transactionId, returnDate, items) {
+    var rows = (items || []).map(function (item) {
+      return {
+        movement_date: returnDate,
+        product_id: item.product_id,
+        transaction_id: transactionId,
+        movement_type: 'return',
+        quantity_delta: Math.abs(Number(item.quantity || 0)),
+        balance_after: ''
+      };
+    });
+    appendMovements_(rows);
+  }
+
+  function recordInventory(payload) {
+    var currentBalance = getBalanceAsOf(payload.product_id, payload.movement_date);
+    var targetQty = Number(payload.quantity || 0);
+    var delta = targetQty - currentBalance;
+    appendMovements_([{
+      movement_date: payload.movement_date,
+      product_id: payload.product_id,
+      transaction_id: '',
+      movement_type: 'inventory',
+      quantity_delta: delta,
+      balance_after: ''
+    }]);
+    return getStockSnapshot(payload.movement_date);
+  }
+
+  function getStockSnapshot(dateString) {
+    return getProducts_().map(function (product) {
+      return {
+        product_id: product.id,
+        product_name: product.name,
+        available: getBalanceAsOf(product.id, dateString)
       };
     });
   }
@@ -123,11 +142,8 @@ var RacsorStockService = (function () {
   function getStockLedger(productId, startDate, days) {
     var output = [];
     var start = RacsorUtils.parseDate(startDate);
-    var end = new Date(start.getTime());
-    end.setDate(start.getDate() + days - 1);
-    var context = buildAvailabilityContext_(RacsorUtils.toDateOnlyString(start), RacsorUtils.toDateOnlyString(end));
-    var allMovements = RacsorRepository.getAll(RacsorConfig.SHEETS.STOCK_MOVEMENTS).filter(function (item) {
-      return item.product_id === productId;
+    var movements = sortMovements_(getAllMovements_()).filter(function (movement) {
+      return movement.product_id === productId;
     });
     for (var i = 0; i < days; i += 1) {
       var current = new Date(start.getTime());
@@ -135,9 +151,9 @@ var RacsorStockService = (function () {
       var dateString = RacsorUtils.toDateOnlyString(current);
       output.push({
         date: dateString,
-        available: getAvailabilityFromContext_(context, productId, dateString),
-        movements: allMovements.filter(function (item) {
-          return item.movement_date === dateString;
+        available: getBalanceAsOf(productId, dateString),
+        movements: movements.filter(function (movement) {
+          return movement.movement_date === dateString;
         })
       });
     }
@@ -148,28 +164,18 @@ var RacsorStockService = (function () {
     if (!pickupDate || !returnDate) {
       return [];
     }
-    var dates = RacsorUtils.enumerateDateStrings(pickupDate, returnDate);
-    var context = buildAvailabilityContext_(pickupDate, returnDate);
-    return context.products.map(function (product) {
-      var available = Number(context.products.find(function (item) {
-        return item.id === product.id;
-      }).stock_max || 0);
-      dates.forEach(function (dateString) {
-        available = Math.min(available, getAvailabilityFromContext_(context, product.id, dateString));
-      });
+    return getProducts_().map(function (product) {
       return {
         product_id: product.id,
         product_name: product.name,
-        available: available
+        available: getBalanceAsOf(product.id, pickupDate)
       };
     });
   }
 
   function getStockMatrix(startDate, days) {
+    var products = getProducts_();
     var start = RacsorUtils.parseDate(startDate);
-    var end = new Date(start.getTime());
-    end.setDate(start.getDate() + days - 1);
-    var context = buildAvailabilityContext_(RacsorUtils.toDateOnlyString(start), RacsorUtils.toDateOnlyString(end));
     var rows = [];
     for (var i = 0; i < days; i += 1) {
       var current = new Date(start.getTime());
@@ -181,13 +187,13 @@ var RacsorStockService = (function () {
         is_first_of_month: current.getDate() === 1,
         products: {}
       };
-      context.products.forEach(function (product) {
-        row.products[product.id] = getAvailabilityFromContext_(context, product.id, dateString);
+      products.forEach(function (product) {
+        row.products[product.id] = getBalanceAsOf(product.id, dateString);
       });
       rows.push(row);
     }
     return {
-      products: context.products.map(function (product) {
+      products: products.map(function (product) {
         return { product_id: product.id, product_name: product.name };
       }),
       rows: rows
@@ -195,12 +201,14 @@ var RacsorStockService = (function () {
   }
 
   return {
-    assertAvailability: assertAvailability,
     reserveStock: reserveStock,
     releaseReservation: releaseReservation,
+    recordReturn: recordReturn,
+    recordInventory: recordInventory,
     getStockSnapshot: getStockSnapshot,
     getStockLedger: getStockLedger,
     getPeriodAvailability: getPeriodAvailability,
-    getStockMatrix: getStockMatrix
+    getStockMatrix: getStockMatrix,
+    getNegativeAlerts_: getNegativeAlerts_
   };
 })();

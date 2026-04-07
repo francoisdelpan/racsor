@@ -9,6 +9,7 @@
     pickupContracts: [],
     driveReturnContracts: [],
     savReturnContracts: [],
+    inventoryDate: null,
     stockMatrix: null,
     stockMatrixStartDate: null,
     stockMatrixHiddenProducts: {},
@@ -121,7 +122,7 @@
           <div class="brand">
             <div class="brand-mark">${logo}</div>
             <div>
-              <h1>RacsoR</h1>
+              <h1>LOCATION MATERIEL</h1>
               <p>Rental Assets & Contract System for Operations & Returns</p>
             </div>
           </div>
@@ -156,6 +157,7 @@
         <div class="nav-group-title">Pilotage</div>
         ${navButton('dashboard', 'Dashboard')}
         ${navButton('stock', 'Fiches de stock')}
+        ${navButton('inventory', 'Inventaire')}
       </div>
       ${(role === 'RESP' || role === 'SAV') ? `
         <div class="nav-group">
@@ -191,6 +193,8 @@
         return renderNewContractView();
       case 'stock':
         return renderStockView();
+      case 'inventory':
+        return renderInventoryView();
       case 'drive-pickup':
         return renderDrivePickupView();
       case 'drive-return':
@@ -230,6 +234,17 @@
             ${renderContractList(dashboard.returns.concat(dashboard.late).slice(0, 10))}
           </div>
         </div>
+        ${dashboard.stockAlerts && dashboard.stockAlerts.length ? `
+          <div class="panel">
+            <div class="panel-title"><h3>Alertes stock negatif</h3></div>
+            <table>
+              <thead><tr><th>Produit</th><th>Stock</th></tr></thead>
+              <tbody>
+                ${dashboard.stockAlerts.map(item => `<tr><td>${escapeHtml(item.product_name)}</td><td class="validation-error">${item.available}</td></tr>`).join('')}
+              </tbody>
+            </table>
+          </div>
+        ` : ''}
         <div class="panel">
           <div class="panel-title"><h3>Derniers contrats crees</h3></div>
           ${renderRecentContractsTable(dashboard.recentContracts || [])}
@@ -585,6 +600,33 @@
         </div>
         <div id="stock-matrix-container">
           ${renderStockMatrix()}
+        </div>
+      </section>
+    `;
+  }
+
+  function renderInventoryView() {
+    return `
+      <section class="panel">
+        <div class="panel-title"><h2>Inventaire</h2></div>
+        <div class="form-grid">
+          <div class="field">
+            <label>Date</label>
+            <input id="inventory-date" type="date" value="${state.inventoryDate || state.bootstrap.dashboard.today}">
+          </div>
+          <div class="field">
+            <label>Produit</label>
+            <select id="inventory-product">
+              ${state.bootstrap.referenceData.products.map(item => `<option value="${item.id}">${escapeHtml(item.name)}</option>`).join('')}
+            </select>
+          </div>
+          <div class="field">
+            <label>Qte</label>
+            <input id="inventory-qty" type="number" min="0" value="0">
+          </div>
+        </div>
+        <div class="button-row" style="margin-top:16px;">
+          <button class="button button-primary" onclick="submitInventory()">Enregistrer l'inventaire</button>
         </div>
       </section>
     `;
@@ -1142,6 +1184,25 @@
     state.currentView = 'dashboard';
     render();
     setStatus('Creation de contrat terminee.');
+  }
+
+  async function submitInventory() {
+    const payload = {
+      movement_date: document.getElementById('inventory-date').value,
+      product_id: document.getElementById('inventory-product').value,
+      quantity: Number(document.getElementById('inventory-qty').value || 0)
+    };
+    state.inventoryDate = payload.movement_date;
+    try {
+      await runServer('apiRecordInventory', payload);
+      await refreshDashboard();
+      if (state.stockMatrix) {
+        await loadStockMatrix();
+      }
+      setStatus('Inventaire enregistre.');
+    } catch (error) {
+      setStatus(error.message);
+    }
   }
 
   function toggleStockProduct(productId) {

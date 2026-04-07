@@ -1,7 +1,7 @@
 function doGet() {
   return HtmlService.createTemplateFromFile('Index')
     .evaluate()
-    .setTitle('RacsoR')
+    .setTitle('LOCATION MATERIEL')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
@@ -85,4 +85,8 @@ function apiUpdateProductAdmin(payload) {
 
 function apiUpdatePriceAdmin(payload) {
   return RacsorContractService.updatePriceAdmin(payload);
+}
+
+function apiRecordInventory(payload) {
+  return RacsorStockService.recordInventory(payload);
 }
