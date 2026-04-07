@@ -17,6 +17,7 @@
     stockMatrixLoading: false,
     periodAvailabilityLoading: false,
     uploadTargetContractId: null,
+    uploadTargetMode: 'document',
     loadingCount: 0,
     viewLoadToken: 0
   };
@@ -315,6 +316,8 @@
               <td>
                 <div class="inline-actions">
                   ${item.drive_folder_url ? `<a class="button button-secondary" href="${escapeHtml(item.drive_folder_url)}" target="_blank">Dossier</a>` : ''}
+                  ${item.status !== 'signed' ? `<button class="button button-accent" onclick="triggerDashboardSignedUpload('${item.id}')">Televerser signe</button>` : ''}
+                  ${item.status !== 'signed' ? `<button class="button button-secondary" onclick="forceDashboardSigned('${item.id}')">Forcer SIGNED</button>` : ''}
                   <button class="button button-secondary" onclick="triggerDashboardUpload('${item.id}')">Ajouter une piece</button>
                 </div>
               </td>
@@ -323,6 +326,7 @@
         </tbody>
       </table>
       <input id="dashboard-upload-input" class="hidden" type="file" onchange="uploadDashboardDocument(event)">
+      <input id="dashboard-signed-upload-input" class="hidden" type="file" onchange="uploadDashboardSignedDocument(event)">
     `;
   }
 
@@ -1005,7 +1009,18 @@
 
   function triggerDashboardUpload(transactionId) {
     state.uploadTargetContractId = transactionId;
+    state.uploadTargetMode = 'document';
     const input = document.getElementById('dashboard-upload-input');
+    if (input) {
+      input.value = '';
+      input.click();
+    }
+  }
+
+  function triggerDashboardSignedUpload(transactionId) {
+    state.uploadTargetContractId = transactionId;
+    state.uploadTargetMode = 'signed';
+    const input = document.getElementById('dashboard-signed-upload-input');
     if (input) {
       input.value = '';
       input.click();
@@ -1031,6 +1046,41 @@
       setStatus(error.message);
     } finally {
       state.uploadTargetContractId = null;
+      state.uploadTargetMode = 'document';
+    }
+  }
+
+  async function uploadDashboardSignedDocument(event) {
+    const file = event.target.files[0];
+    if (!file || !state.uploadTargetContractId) {
+      return;
+    }
+    setStatus('Televersement du contrat signe...');
+    const base64 = await fileToBase64(file);
+    try {
+      await runServer('apiMarkContractSigned', state.uploadTargetContractId, {
+        name: file.name,
+        mimeType: file.type,
+        base64
+      });
+      await refreshDashboard(true);
+      setStatus('Contrat signe enregistre depuis le dashboard.');
+    } catch (error) {
+      setStatus(error.message);
+    } finally {
+      state.uploadTargetContractId = null;
+      state.uploadTargetMode = 'document';
+    }
+  }
+
+  async function forceDashboardSigned(transactionId) {
+    setStatus('Passage du contrat en SIGNED...');
+    try {
+      await runServer('apiForceContractSigned', transactionId);
+      await refreshDashboard(true);
+      setStatus('Contrat passe en SIGNED.');
+    } catch (error) {
+      setStatus(error.message);
     }
   }
 
@@ -1195,10 +1245,17 @@
       movement_date: document.getElementById('inventory-date').value,
       items: Array.from(document.querySelectorAll('[data-inventory-product]')).map(input => ({
         product_id: input.dataset.inventoryProduct,
-        quantity: Number(input.value || 0)
+        quantity: input.value.trim()
+      })).filter(item => item.quantity !== '').map(item => ({
+        product_id: item.product_id,
+        quantity: Number(item.quantity)
       })).filter(item => !Number.isNaN(item.quantity))
     };
     state.inventoryDate = payload.movement_date;
+    if (!payload.items.length) {
+      setStatus('Aucune quantite saisie pour l inventaire.');
+      return;
+    }
     try {
       await runServer('apiRecordInventoryBulk', payload);
       await refreshDashboard(true);

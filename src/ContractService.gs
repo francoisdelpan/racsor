@@ -288,6 +288,19 @@ var RacsorContractService = (function () {
     return getContractById(transactionId);
   }
 
+  function forceContractSigned(transactionId) {
+    var data = getContractById(transactionId);
+    if (['cancelled', 'closed'].indexOf(data.transaction.status) !== -1) {
+      throw new Error('Ce contrat ne peut pas passer en signed.');
+    }
+    RacsorRepository.updateById(RacsorConfig.SHEETS.TRANSACTIONS, 'id', transactionId, {
+      status: 'signed',
+      updated_at: RacsorUtils.nowIso()
+    });
+    RacsorLogService.log('FORCE_SIGN_CONTRACT', 'transaction', transactionId, {});
+    return getContractById(transactionId);
+  }
+
   function uploadContractDocument(transactionId, filePayload) {
     var data = getContractById(transactionId);
     if (!data.transaction.drive_folder_id || !RacsorDriveService.getFolderSafe_(data.transaction.drive_folder_id)) {
@@ -414,6 +427,7 @@ var RacsorContractService = (function () {
     getContractById: getContractById,
     findContractByNumber: findContractByNumber,
     markContractSigned: markContractSigned,
+    forceContractSigned: forceContractSigned,
     uploadContractDocument: uploadContractDocument,
     markPickedUp: markPickedUp,
     cancelContract: cancelContract,
