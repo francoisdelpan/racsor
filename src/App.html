@@ -1168,7 +1168,7 @@
       if (container) {
         container.innerHTML = renderStockMatrix();
       }
-      state.stockMatrix = await runServerBackground('apiGetStockMatrix', startDate || state.bootstrap.dashboard.today, 45);
+      state.stockMatrix = await runServerBackground('apiGetStockMatrix', startDate || state.bootstrap.dashboard.today, 14);
       setStatus('Fiche de stock chargee.');
     } catch (error) {
       setStatus(error.message);
@@ -1202,7 +1202,7 @@
     try {
       await runServer('apiRecordInventoryBulk', payload);
       await refreshDashboard(true);
-      if (state.stockMatrix) {
+      if (state.currentView === 'stock' && state.stockMatrix) {
         await loadStockMatrix();
       }
       setStatus('Inventaire enregistre.');

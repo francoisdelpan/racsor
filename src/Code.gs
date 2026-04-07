@@ -68,7 +68,7 @@ function apiGetPeriodAvailability(pickupDate, returnDate) {
 }
 
 function apiGetStockMatrix(startDate, days) {
-  return RacsorStockService.getStockMatrix(startDate, days || 45);
+  return RacsorStockService.getStockMatrix(startDate, days || 14);
 }
 
 function apiListContractsByStatuses(statuses) {

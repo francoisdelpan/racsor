@@ -111,20 +111,16 @@ var RacsorStockService = (function () {
   }
 
   function getDateRow(dateString) {
-    var sheet = ensureDatesUntil(dateString);
-    var dates = getSheetDates_(sheet);
     var normalizedDate = RacsorUtils.toDateOnlyString(dateString);
-    for (var index = 0; index < dates.length; index += 1) {
-      if (dates[index] === normalizedDate) {
-        return index + 2;
-      }
+    var row = getStockContext_(dateString).rowByDate[normalizedDate];
+    if (!row) {
+      throw new Error('Date de stock introuvable: ' + normalizedDate);
     }
-    throw new Error('Date de stock introuvable: ' + normalizedDate);
+    return row;
   }
 
   function getProductColumn(productId) {
-    var map = syncProductColumns_();
-    var column = map[productId];
+    var column = getStockContext_().productColumnMap[productId];
     if (!column) {
       throw new Error('Produit introuvable dans Stock_Mouvement: ' + productId);
     }
@@ -140,9 +136,10 @@ var RacsorStockService = (function () {
   }
 
   function applyInventoryOverride(payload) {
-    var sheet = ensureDatesUntil(payload.movement_date);
-    var row = getDateRow(payload.movement_date);
-    var column = getProductColumn(payload.product_id);
+    var context = getStockContext_(payload.movement_date);
+    var sheet = context.sheet;
+    var row = context.rowByDate[RacsorUtils.toDateOnlyString(payload.movement_date)];
+    var column = context.productColumnMap[payload.product_id];
     var cell = sheet.getRange(row, column);
     cell.setFormula('');
     cell.setValue(Number(payload.quantity || 0));
@@ -151,26 +148,32 @@ var RacsorStockService = (function () {
 
   function recordInventory(payload) {
     applyInventoryOverride(payload);
-    return getStockSnapshot(payload.movement_date);
+    return { ok: true };
   }
 
   function recordInventoryBulk(payload) {
-    ensureDatesUntil(payload.movement_date);
+    var context = getStockContext_(payload.movement_date);
+    var sheet = context.sheet;
+    var row = context.rowByDate[RacsorUtils.toDateOnlyString(payload.movement_date)];
     (payload.items || []).forEach(function (item) {
-      applyInventoryOverride({
-        movement_date: payload.movement_date,
-        product_id: item.product_id,
-        quantity: item.quantity
-      });
+      var column = context.productColumnMap[item.product_id];
+      if (!column) {
+        return;
+      }
+      var cell = sheet.getRange(row, column);
+      cell.setFormula('');
+      cell.setValue(Number(item.quantity || 0));
+      cell.setFontWeight('bold');
     });
-    return getStockSnapshot(payload.movement_date);
+    return { ok: true };
   }
 
   function getMinimumAvailableStock(productId, pickupDate, returnDate) {
-    var sheet = ensureDatesUntil(returnDate);
-    var startRow = getDateRow(pickupDate);
-    var endRow = getDateRow(returnDate);
-    var column = getProductColumn(productId);
+    var context = getStockContext_(returnDate);
+    var sheet = context.sheet;
+    var startRow = context.rowByDate[RacsorUtils.toDateOnlyString(pickupDate)];
+    var endRow = context.rowByDate[RacsorUtils.toDateOnlyString(returnDate)];
+    var column = context.productColumnMap[productId];
     var values = sheet.getRange(startRow, column, endRow - startRow + 1, 1).getValues();
     var minValue = null;
     values.forEach(function (row) {
@@ -195,15 +198,13 @@ var RacsorStockService = (function () {
   }
 
   function getStockSnapshot(dateString) {
-    var sheet = ensureDatesUntil(dateString);
-    var row = getDateRow(dateString);
+    var context = getStockContext_(dateString);
+    var sheet = context.sheet;
+    var row = context.rowByDate[RacsorUtils.toDateOnlyString(dateString)];
     var products = getProducts_();
-    var lastColumn = sheet.getLastColumn();
-    var headers = sheet.getRange(1, 1, 1, lastColumn).getValues()[0];
-    var rowValues = sheet.getRange(row, 1, 1, lastColumn).getValues()[0];
-    var productColumnMap = getProductColumnMapFromHeaders_(headers);
+    var rowValues = sheet.getRange(row, 1, 1, context.lastColumn).getValues()[0];
     return products.map(function (product) {
-      var column = productColumnMap[product.id];
+      var column = context.productColumnMap[product.id];
       return {
         product_id: product.id,
         product_name: product.name,
@@ -227,11 +228,31 @@ var RacsorStockService = (function () {
     if (!pickupDate || !returnDate) {
       return [];
     }
-    return getProducts_().map(function (product) {
+    var context = getStockContext_(returnDate);
+    var products = getProducts_();
+    var startRow = context.rowByDate[RacsorUtils.toDateOnlyString(pickupDate)];
+    var endRow = context.rowByDate[RacsorUtils.toDateOnlyString(returnDate)];
+    var height = endRow - startRow + 1;
+    var ranges = [];
+    products.forEach(function (product) {
+      var column = context.productColumnMap[product.id];
+      if (column) {
+        ranges.push({
+          product: product,
+          values: context.sheet.getRange(startRow, column, height, 1).getValues()
+        });
+      }
+    });
+    return ranges.map(function (entry) {
+      var minValue = null;
+      entry.values.forEach(function (row) {
+        var value = Number(row[0] || 0);
+        minValue = minValue === null ? value : Math.min(minValue, value);
+      });
       return {
-        product_id: product.id,
-        product_name: product.name,
-        available: getMinimumAvailableStock(product.id, pickupDate, returnDate)
+        product_id: entry.product.id,
+        product_name: entry.product.name,
+        available: minValue === null ? 0 : minValue
       };
     });
   }
@@ -242,14 +263,12 @@ var RacsorStockService = (function () {
     var end = new Date(start.getTime());
     end.setDate(end.getDate() + Number(days || 0) - 1);
     var endDate = RacsorUtils.toDateOnlyString(end);
-    var sheet = ensureDatesUntil(endDate);
-    var startRow = getDateRow(normalizedStartDate);
-    var endRow = getDateRow(endDate);
+    var context = getStockContext_(endDate);
+    var sheet = context.sheet;
+    var startRow = context.rowByDate[normalizedStartDate];
+    var endRow = context.rowByDate[endDate];
     var products = getProducts_();
-    var lastColumn = sheet.getLastColumn();
-    var headers = sheet.getRange(1, 1, 1, lastColumn).getValues()[0];
-    var values = sheet.getRange(startRow, 1, endRow - startRow + 1, lastColumn).getValues();
-    var productColumnMap = getProductColumnMapFromHeaders_(headers);
+    var values = sheet.getRange(startRow, 1, endRow - startRow + 1, context.lastColumn).getValues();
     var rows = [];
 
     for (var index = 0; index < values.length; index += 1) {
@@ -264,7 +283,7 @@ var RacsorStockService = (function () {
         products: {}
       };
       products.forEach(function (product) {
-        var column = productColumnMap[product.id];
+        var column = context.productColumnMap[product.id];
         row.products[product.id] = column ? Number(rowValues[column - 1] || 0) : 0;
       });
       rows.push(row);
@@ -295,24 +314,24 @@ var RacsorStockService = (function () {
   }
 
   function applyStockDelta_(items, dateString, sign) {
-    ensureDatesUntil(dateString);
+    var context = getStockContext_(dateString);
     var grouped = {};
     (items || []).forEach(function (item) {
       var productId = item.product_id;
       grouped[productId] = Number(grouped[productId] || 0) + (Number(item.quantity || 0) * sign);
     });
     Object.keys(grouped).forEach(function (productId) {
-      applyDeltaForProduct_(dateString, productId, grouped[productId]);
+      applyDeltaForProduct_(context, dateString, productId, grouped[productId]);
     });
   }
 
-  function applyDeltaForProduct_(dateString, productId, delta) {
+  function applyDeltaForProduct_(context, dateString, productId, delta) {
     if (!delta) {
       return;
     }
-    var sheet = ensureDatesUntil(dateString);
-    var row = getDateRow(dateString);
-    var column = getProductColumn(productId);
+    var sheet = context.sheet;
+    var row = context.rowByDate[RacsorUtils.toDateOnlyString(dateString)];
+    var column = context.productColumnMap[productId];
     var cell = sheet.getRange(row, column);
     var formula = String(cell.getFormula() || '');
     var signedDelta = delta >= 0 ? '+' + delta : String(delta);
@@ -329,6 +348,33 @@ var RacsorStockService = (function () {
     var lastColumn = Math.max(sheet.getLastColumn(), 1);
     var headers = sheet.getRange(1, 1, 1, lastColumn).getValues()[0];
     return getProductColumnMapFromHeaders_(headers);
+  }
+
+  function getStockContext_(targetDate) {
+    if (targetDate) {
+      ensureDatesUntil(targetDate);
+    } else {
+      ensureStockSheetExists();
+    }
+    var sheet = RacsorRepository.getSheet(RacsorConfig.SHEETS.STOCK_MOVEMENTS);
+    var lastRow = sheet.getLastRow();
+    var lastColumn = Math.max(sheet.getLastColumn(), 1);
+    var headers = sheet.getRange(1, 1, 1, lastColumn).getValues()[0];
+    var dates = lastRow >= 2 ? sheet.getRange(2, 1, lastRow - 1, 1).getValues() : [];
+    var rowByDate = {};
+    dates.forEach(function (row, index) {
+      if (row[0]) {
+        rowByDate[RacsorUtils.toDateOnlyString(row[0])] = index + 2;
+      }
+    });
+    return {
+      sheet: sheet,
+      lastRow: lastRow,
+      lastColumn: lastColumn,
+      headers: headers,
+      productColumnMap: getProductColumnMapFromHeaders_(headers),
+      rowByDate: rowByDate
+    };
   }
 
   function getProductColumnMapFromHeaders_(headers) {
