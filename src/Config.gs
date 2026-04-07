@@ -31,9 +31,9 @@ var RacsorConfig = (function () {
   ];
 
   var DEFAULT_PRODUCTS = [
-    { id: 'PROD_TABLE_MULTI', name: 'Table multifonction pliable', stock_max: 20, deposit_amount: 0, is_active: true },
-    { id: 'PROD_TABLE_COCKTAIL', name: 'Table cocktail pliable', stock_max: 10, deposit_amount: 0, is_active: true },
-    { id: 'PROD_CHAIR_BLACK', name: 'Fauteuil plastique noir', stock_max: 50, deposit_amount: 0, is_active: true }
+    { id: 'PROD_TABLE_MULTI', name: 'Table multifonction pliable', stock_max: 20, deposit_amount: 30, is_active: true },
+    { id: 'PROD_TABLE_COCKTAIL', name: 'Table cocktail pliable', stock_max: 10, deposit_amount: 30, is_active: true },
+    { id: 'PROD_CHAIR_BLACK', name: 'Fauteuil plastique noir', stock_max: 50, deposit_amount: 6, is_active: true }
   ];
 
   var DEFAULT_PRICING_RULES = [

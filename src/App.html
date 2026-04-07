@@ -205,7 +205,6 @@
         <div class="panel-title">
           <h2>Dashboard</h2>
           <div class="button-row">
-            <span class="muted">Stock theorique du ${dashboard.today}</span>
             ${state.bootstrap.settings.calendarId ? `<a class="button button-secondary" href="https://calendar.google.com/calendar/u/0/r?cid=${encodeURIComponent(state.bootstrap.settings.calendarId)}" target="_blank">Ouvrir Calendar</a>` : ''}
           </div>
         </div>
@@ -288,7 +287,7 @@
             <tr>
               <td>${escapeHtml(item.contract_number)}</td>
               <td>${escapeHtml(item.client_full_name)}</td>
-              <td>${escapeHtml(item.client_phone || item.client_email || '-')}</td>
+              <td>${escapeHtml([item.client_phone, item.client_email].filter(Boolean).join(' / ') || '-')}</td>
               <td><span class="tag tag-${escapeHtml(item.status)}">${escapeHtml(item.status)}</span></td>
               <td>
                 <div class="inline-actions">
