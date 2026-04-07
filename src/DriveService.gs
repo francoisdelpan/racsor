@@ -80,12 +80,12 @@ var RacsorDriveService = (function () {
   function buildItemLines_(items) {
     return items.map(function (item) {
       var ruleDetail = item.pricing_label_snapshot || item.pricing_rule_code || '';
-      var dayDetail = item.pricing_rule_code === 'WEEKEND' ? '' : ' - ' + item.charged_days + ' jour(s)';
-      return '- ' + item.product_label_snapshot
-        + ' | qte: ' + item.quantity
-        + ' | forfait: ' + ruleDetail
+      var dayDetail = item.pricing_rule_code === 'WEEKEND' ? '' : ' x nombre de jours: ' + item.charged_days;
+      return item.product_label_snapshot
+        + ' -> Qté: ' + item.quantity
+        + ' x forfait TTC: ' + ruleDetail + ' (' + item.unit_price_ttc + ' Eur)'
         + dayDetail
-        + ' | total: ' + item.line_amount_ttc + ' EUR TTC';
+        + ' x total: ' + item.line_amount_ttc + ' Eur';
     }).join('\n');
   }
 

@@ -144,6 +144,9 @@
       ensureContractItems();
       hydratePeriodAvailabilityUi();
     }
+    if (state.currentView === 'drive-return' && state.driveReturnContract) {
+      initializeReturnForm();
+    }
   }
 
   function renderSidebar() {
@@ -477,19 +480,21 @@
         <div class="panel-title"><h2>Controle qualite</h2></div>
         <form id="return-form" onsubmit="event.preventDefault(); submitReturn();">
           ${contract.items.map(item => `
-            <div class="panel inset-panel">
+            <div class="panel inset-panel" data-return-row="${item.product_id}" data-rented-qty="${item.quantity}">
               <h3>${escapeHtml(item.product_label_snapshot)} · Qté louee ${item.quantity}</h3>
               <div class="state-grid">
                 ${states.map(stateItem => `
-                  <div class="field">
+                  <div class="field compact-field">
                     <label>${escapeHtml(stateItem.label)}</label>
                     <input type="number" min="0" value="${stateItem.label === 'conforme' ? item.quantity : 0}"
                       data-product-id="${item.product_id}"
                       data-state-id="${stateItem.id}"
-                      data-state-label="${escapeHtml(stateItem.label)}">
+                      data-state-label="${escapeHtml(stateItem.label)}"
+                      ${stateItem.label === 'conforme' ? 'data-auto-conforme="true" readonly' : `oninput="syncReturnRow('${item.product_id}')"`}>
                   </div>
                 `).join('')}
               </div>
+              <div class="row-validation muted" data-return-validation="${item.product_id}"></div>
               <div class="field" style="margin-top:12px;">
                 <label>Commentaire</label>
                 <textarea data-comment-product-id="${item.product_id}"></textarea>
@@ -828,6 +833,50 @@
     }
   }
 
+  function initializeReturnForm() {
+    if (!state.driveReturnContract) {
+      return;
+    }
+    state.driveReturnContract.items.forEach(item => {
+      syncReturnRow(item.product_id);
+    });
+  }
+
+  function syncReturnRow(productId) {
+    const row = document.querySelector(`[data-return-row="${productId}"]`);
+    if (!row) {
+      return true;
+    }
+    const rentedQty = Number(row.dataset.rentedQty || 0);
+    const inputs = Array.from(row.querySelectorAll('input[data-product-id]'));
+    const conformeInput = inputs.find(input => input.dataset.autoConforme === 'true');
+    const otherInputs = inputs.filter(input => input.dataset.autoConforme !== 'true');
+    const otherTotal = otherInputs.reduce((acc, input) => acc + Number(input.value || 0), 0);
+    const remaining = rentedQty - otherTotal;
+    if (conformeInput) {
+      conformeInput.value = Math.max(0, remaining);
+    }
+    const isValid = remaining >= 0 && (otherTotal + Number(conformeInput ? conformeInput.value : 0)) === rentedQty;
+    row.querySelectorAll('input[data-product-id]').forEach(input => {
+      input.classList.toggle('input-invalid', !isValid);
+    });
+    const validation = row.querySelector(`[data-return-validation="${productId}"]`);
+    if (validation) {
+      validation.textContent = isValid
+        ? `Total conforme. ${rentedQty} unite(s) controlee(s).`
+        : `Quantites invalides. Il faut totaliser exactement ${rentedQty}.`;
+      validation.classList.toggle('validation-error', !isValid);
+    }
+    return isValid;
+  }
+
+  function validateReturnForm() {
+    if (!state.driveReturnContract) {
+      return false;
+    }
+    return state.driveReturnContract.items.every(item => syncReturnRow(item.product_id));
+  }
+
   function updatePeriodAvailabilityUi() {
     const panel = document.getElementById('period-availability-panel');
     if (panel) {
@@ -997,6 +1046,7 @@
       await refreshDashboard();
       await loadContractsForView('pickupContracts', ['signed']);
       await loadContractsForView('driveReturnContracts', ['picked_up', 'late', 'incident']);
+      state.pickupContract = null;
       render();
       setStatus('Depart des marchandises confirme.');
     } catch (error) {
@@ -1006,6 +1056,10 @@
 
   async function submitReturn() {
     if (!state.driveReturnContract) {
+      return;
+    }
+    if (!validateReturnForm()) {
+      setStatus('Les quantites de retour ne correspondent pas.');
       return;
     }
     const productGroups = {};
@@ -1032,6 +1086,7 @@
       await refreshDashboard();
       await loadContractsForView('driveReturnContracts', ['picked_up', 'late', 'incident']);
       await loadContractsForView('savReturnContracts', ['returned', 'incident']);
+      state.driveReturnContract = null;
       render();
       setStatus('Retour enregistre.');
     } catch (error) {
@@ -1048,6 +1103,7 @@
       state.savReturnContract = await runServer('apiCloseContract', state.savReturnContract.transaction.id);
       await refreshDashboard();
       await loadContractsForView('savReturnContracts', ['returned', 'incident']);
+      state.savReturnContract = null;
       render();
       setStatus('Dossier clos.');
     } catch (error) {

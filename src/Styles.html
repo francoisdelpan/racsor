@@ -341,8 +341,27 @@
 
   .state-grid {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 10px;
+  }
+
+  .compact-field label {
+    font-size: 12px;
+  }
+
+  .row-validation {
+    margin-top: 10px;
+    font-size: 13px;
+  }
+
+  .validation-error {
+    color: var(--color-red);
+    font-weight: 700;
+  }
+
+  .input-invalid {
+    border-color: var(--color-red);
+    background: rgba(191, 30, 16, 0.06);
   }
 
   .hidden {
@@ -465,6 +484,10 @@
     .grid-2,
     .form-grid {
       grid-template-columns: 1fr;
+    }
+
+    .state-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
     .sidebar {
