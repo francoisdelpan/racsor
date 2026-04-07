@@ -6,6 +6,9 @@
     pickupContract: null,
     driveReturnContract: null,
     savReturnContract: null,
+    pickupContracts: [],
+    driveReturnContracts: [],
+    savReturnContracts: [],
     stockMatrix: null,
     stockMatrixStartDate: null,
     stockMatrixHiddenProducts: {},
@@ -415,7 +418,7 @@
       </section>
       <section class="panel">
         <div class="panel-title"><h2>Contrats prets au retrait</h2></div>
-        ${renderQuickContractPicker(state.bootstrap.dashboard.pickups.filter(item => item.status === 'signed'), 'pickup')}
+        ${renderQuickContractPicker(state.pickupContracts, 'pickup')}
       </section>
       ${state.pickupContract ? renderPickupContractPanel() : ''}
     `;
@@ -452,7 +455,7 @@
       </section>
       <section class="panel">
         <div class="panel-title"><h2>Retours a controler</h2></div>
-        ${renderQuickContractPicker(state.bootstrap.dashboard.returns, 'driveReturn')}
+        ${renderQuickContractPicker(state.driveReturnContracts, 'driveReturn')}
       </section>
       ${state.driveReturnContract ? renderDriveReturnPanel() : ''}
     `;
@@ -510,7 +513,7 @@
       </section>
       <section class="panel">
         <div class="panel-title"><h2>Dossiers a cloturer</h2></div>
-        ${renderQuickContractPicker(state.bootstrap.dashboard.returns.concat(state.bootstrap.dashboard.incidents), 'savReturn')}
+        ${renderQuickContractPicker(state.savReturnContracts, 'savReturn')}
       </section>
       ${state.savReturnContract ? renderSavReturnPanel() : ''}
     `;
@@ -629,14 +632,65 @@
           <div class="panel inset-panel">
             <div class="panel-title"><h3>Produits</h3></div>
             <table>
-              <thead><tr><th>Nom</th><th>Stock</th><th>Caution</th></tr></thead>
+              <thead><tr><th>Nom</th><th>Stock</th><th>Caution</th><th>Actif</th><th></th></tr></thead>
               <tbody>
-                ${ref.products.map(item => `<tr><td>${escapeHtml(item.name)}</td><td>${item.stock_max}</td><td>${formatCurrency(item.deposit_amount)}</td></tr>`).join('')}
+                ${ref.products.map(item => `
+                  <tr>
+                    <td>${escapeHtml(item.name)}</td>
+                    <td><input data-admin-product-stock="${item.id}" type="number" value="${item.stock_max}"></td>
+                    <td><input data-admin-product-deposit="${item.id}" type="number" step="0.01" value="${parseNumeric(item.deposit_amount)}"></td>
+                    <td><input data-admin-product-active="${item.id}" type="checkbox" ${String(item.is_active) === 'false' ? '' : 'checked'}></td>
+                    <td><button class="button button-secondary" onclick="saveProductAdmin('${item.id}')">Sauver</button></td>
+                  </tr>
+                `).join('')}
               </tbody>
             </table>
           </div>
           <div class="panel inset-panel">
-            <div class="panel-title"><h3>Etats retour</h3></div>
+            <div class="panel-title"><h3>Utilisateurs</h3></div>
+            <table>
+              <thead><tr><th>Email</th><th>Role</th><th>Alertes</th><th>Actif</th></tr></thead>
+              <tbody>
+                ${ref.users.map(item => `
+                  <tr>
+                    <td>${escapeHtml(item.email)}</td>
+                    <td>${escapeHtml(item.role)}</td>
+                    <td>${escapeHtml(String(item.get_alert))}</td>
+                    <td>${escapeHtml(String(item.is_active))}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+            <div class="form-grid" style="margin-top:16px;">
+              <div class="field field-full"><label>Email</label><input id="admin-user-email" type="email"></div>
+              <div class="field"><label>Role</label><select id="admin-user-role"><option>RESP</option><option>SAV</option><option>DRIVE</option></select></div>
+              <div class="field"><label>Alertes</label><select id="admin-user-alert"><option value="true">Oui</option><option value="false">Non</option></select></div>
+              <div class="field"><label>Actif</label><select id="admin-user-active"><option value="true">Oui</option><option value="false">Non</option></select></div>
+            </div>
+            <div class="button-row" style="margin-top:12px;">
+              <button class="button button-primary" onclick="saveUserAdmin()">Ajouter / mettre a jour</button>
+            </div>
+          </div>
+        </div>
+        <div class="panel inset-panel">
+          <div class="panel-title"><h3>Tarifs</h3></div>
+          <table>
+            <thead><tr><th>Produit</th><th>Regle</th><th>Prix TTC</th><th>Actif</th><th></th></tr></thead>
+            <tbody>
+              ${ref.prices.map(price => `
+                <tr>
+                  <td>${escapeHtml(findProductName(price.product_id))}</td>
+                  <td>${escapeHtml(findPricingRuleLabel(price.pricing_rule_id))}</td>
+                  <td><input data-admin-price="${price.id}" type="number" step="0.01" value="${parseNumeric(price.unit_price_ttc)}"></td>
+                  <td><input data-admin-price-active="${price.id}" type="checkbox" ${String(price.is_active) === 'false' ? '' : 'checked'}></td>
+                  <td><button class="button button-secondary" onclick="savePriceAdmin('${price.id}')">Sauver</button></td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+        <div class="panel inset-panel">
+          <div class="panel-title"><h3>Etats retour</h3></div>
             <table>
               <thead><tr><th>Label</th><th>Ordre</th><th>Actif</th></tr></thead>
               <tbody>
@@ -676,6 +730,18 @@
     setStatus('Vue ' + view + ' chargee.');
     if (view === 'stock' && !state.stockMatrix) {
       setStatus('Vue stock prete. Clique sur "Charger" pour afficher la matrice.');
+    }
+    if (view === 'dashboard') {
+      refreshDashboard();
+    }
+    if (view === 'drive-pickup') {
+      loadContractsForView('pickupContracts', ['signed']);
+    }
+    if (view === 'drive-return') {
+      loadContractsForView('driveReturnContracts', ['picked_up', 'late', 'incident']);
+    }
+    if (view === 'sav-return') {
+      loadContractsForView('savReturnContracts', ['returned', 'incident']);
     }
   }
 
@@ -827,7 +893,8 @@
         mimeType: file.type,
         base64
       });
-      state.bootstrap.dashboard = await runServer('apiGetDashboardData');
+      await refreshDashboard();
+      await loadContractsForView('pickupContracts', ['signed']);
       render();
       setStatus('Contrat signe enregistre.');
     } catch (error) {
@@ -913,7 +980,9 @@
     setStatus('Validation du retrait...');
     try {
       state.pickupContract = await runServer('apiMarkPickedUp', state.pickupContract.transaction.id);
-      state.bootstrap.dashboard = await runServer('apiGetDashboardData');
+      await refreshDashboard();
+      await loadContractsForView('pickupContracts', ['signed']);
+      await loadContractsForView('driveReturnContracts', ['picked_up', 'late', 'incident']);
       render();
       setStatus('Depart des marchandises confirme.');
     } catch (error) {
@@ -946,7 +1015,9 @@
         transaction_id: state.driveReturnContract.transaction.id,
         items: Object.values(productGroups)
       });
-      state.bootstrap.dashboard = await runServer('apiGetDashboardData');
+      await refreshDashboard();
+      await loadContractsForView('driveReturnContracts', ['picked_up', 'late', 'incident']);
+      await loadContractsForView('savReturnContracts', ['returned', 'incident']);
       render();
       setStatus('Retour enregistre.');
     } catch (error) {
@@ -961,7 +1032,8 @@
     setStatus('Cloture du dossier...');
     try {
       state.savReturnContract = await runServer('apiCloseContract', state.savReturnContract.transaction.id);
-      state.bootstrap.dashboard = await runServer('apiGetDashboardData');
+      await refreshDashboard();
+      await loadContractsForView('savReturnContracts', ['returned', 'incident']);
       render();
       setStatus('Dossier clos.');
     } catch (error) {
@@ -1013,6 +1085,74 @@
   function findProductName(productId) {
     const product = state.bootstrap.referenceData.products.find(item => item.id === productId);
     return product ? product.name : productId;
+  }
+
+  function findPricingRuleLabel(pricingRuleId) {
+    const rule = state.bootstrap.referenceData.pricingRules.find(item => item.id === pricingRuleId);
+    return rule ? rule.label : pricingRuleId;
+  }
+
+  async function refreshDashboard() {
+    state.bootstrap.dashboard = await runServerBackground('apiGetDashboardData');
+    if (state.currentView === 'dashboard') {
+      render();
+    }
+  }
+
+  async function loadContractsForView(targetKey, statuses) {
+    setStatus('Chargement des contrats...');
+    try {
+      state[targetKey] = await runServerBackground('apiListContractsByStatuses', statuses);
+      if (
+        (targetKey === 'pickupContracts' && state.currentView === 'drive-pickup') ||
+        (targetKey === 'driveReturnContracts' && state.currentView === 'drive-return') ||
+        (targetKey === 'savReturnContracts' && state.currentView === 'sav-return')
+      ) {
+        render();
+      }
+      setStatus('Contrats charges.');
+    } catch (error) {
+      setStatus(error.message);
+    }
+  }
+
+  async function saveUserAdmin() {
+    const payload = {
+      email: document.getElementById('admin-user-email').value.trim(),
+      role: document.getElementById('admin-user-role').value,
+      get_alert: document.getElementById('admin-user-alert').value === 'true',
+      is_active: document.getElementById('admin-user-active').value === 'true'
+    };
+    if (!payload.email) {
+      setStatus('Email requis.');
+      return;
+    }
+    state.bootstrap.referenceData = await runServer('apiUpsertUser', payload);
+    render();
+    setStatus('Utilisateur enregistre.');
+  }
+
+  async function saveProductAdmin(productId) {
+    const payload = {
+      id: productId,
+      stock_max: Number(document.querySelector(`[data-admin-product-stock="${productId}"]`).value || 0),
+      deposit_amount: parseNumeric(document.querySelector(`[data-admin-product-deposit="${productId}"]`).value),
+      is_active: document.querySelector(`[data-admin-product-active="${productId}"]`).checked
+    };
+    state.bootstrap.referenceData = await runServer('apiUpdateProductAdmin', payload);
+    render();
+    setStatus('Produit mis a jour.');
+  }
+
+  async function savePriceAdmin(priceId) {
+    const payload = {
+      id: priceId,
+      unit_price_ttc: parseNumeric(document.querySelector(`[data-admin-price="${priceId}"]`).value),
+      is_active: document.querySelector(`[data-admin-price-active="${priceId}"]`).checked
+    };
+    state.bootstrap.referenceData = await runServer('apiUpdatePriceAdmin', payload);
+    render();
+    setStatus('Tarif mis a jour.');
   }
 
   function escapeHtml(value) {

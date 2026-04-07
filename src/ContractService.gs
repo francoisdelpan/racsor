@@ -164,9 +164,52 @@ var RacsorContractService = (function () {
         return statuses.indexOf(item.status) !== -1;
       })
       .sort(function (a, b) {
-        return String(a.pickup_date).localeCompare(String(b.pickup_date));
+        return String(b.created_at).localeCompare(String(a.created_at));
       })
       .map(enrichTransactionFiles_);
+  }
+
+  function upsertUser(payload) {
+    var existing = RacsorRepository.findOneBy(RacsorConfig.SHEETS.USERS, function (user) {
+      return String(user.email).toLowerCase() === String(payload.email).toLowerCase();
+    });
+    if (existing) {
+      RacsorRepository.updateById(RacsorConfig.SHEETS.USERS, 'email', existing.email, {
+        role: payload.role,
+        is_active: payload.is_active,
+        get_alert: payload.get_alert,
+        updated_at: RacsorUtils.nowIso()
+      });
+    } else {
+      RacsorRepository.append(RacsorConfig.SHEETS.USERS, [{
+        email: payload.email,
+        role: payload.role,
+        is_active: payload.is_active,
+        get_alert: payload.get_alert,
+        created_at: RacsorUtils.nowIso(),
+        updated_at: RacsorUtils.nowIso()
+      }]);
+    }
+    return getReferenceData();
+  }
+
+  function updateProductAdmin(payload) {
+    RacsorRepository.updateById(RacsorConfig.SHEETS.PRODUCTS, 'id', payload.id, {
+      stock_max: payload.stock_max,
+      deposit_amount: payload.deposit_amount,
+      is_active: payload.is_active,
+      updated_at: RacsorUtils.nowIso()
+    });
+    return getReferenceData();
+  }
+
+  function updatePriceAdmin(payload) {
+    RacsorRepository.updateById(RacsorConfig.SHEETS.PRICES, 'id', payload.id, {
+      unit_price_ttc: payload.unit_price_ttc,
+      is_active: payload.is_active,
+      updated_at: RacsorUtils.nowIso()
+    });
+    return getReferenceData();
   }
 
   function findContractByNumber(contractNumber) {
@@ -303,6 +346,9 @@ var RacsorContractService = (function () {
     getReferenceData: getReferenceData,
     getDashboardData: getDashboardData,
     listContractsByStatuses: listContractsByStatuses,
+    upsertUser: upsertUser,
+    updateProductAdmin: updateProductAdmin,
+    updatePriceAdmin: updatePriceAdmin,
     createContract: createContract,
     getContractById: getContractById,
     findContractByNumber: findContractByNumber,

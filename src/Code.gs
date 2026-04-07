@@ -70,3 +70,15 @@ function apiGetStockMatrix(startDate, days) {
 function apiListContractsByStatuses(statuses) {
   return RacsorContractService.listContractsByStatuses(statuses || []);
 }
+
+function apiUpsertUser(payload) {
+  return RacsorContractService.upsertUser(payload);
+}
+
+function apiUpdateProductAdmin(payload) {
+  return RacsorContractService.updateProductAdmin(payload);
+}
+
+function apiUpdatePriceAdmin(payload) {
+  return RacsorContractService.updatePriceAdmin(payload);
+}
