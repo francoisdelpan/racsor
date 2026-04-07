@@ -223,8 +223,8 @@
         </div>
         <div class="kpis">
           <div class="kpi kpi-blue"><p>Produits suivis</p><h3>${dashboard.stock.length}</h3></div>
-          <div class="kpi kpi-orange"><p>Enlevements a venir</p><h3>${dashboard.pickups.length}</h3></div>
-          <div class="kpi kpi-green"><p>Retours a venir</p><h3>${dashboard.returns.length}</h3></div>
+          <div class="kpi kpi-orange"><p>Enlevements du jour</p><h3>${dashboard.pickupsTodayCount || 0}</h3><small>${dashboard.pickupsFutureCount || 0} a venir ensuite</small></div>
+          <div class="kpi kpi-green"><p>Retours du jour</p><h3>${dashboard.returnsTodayCount || 0}</h3><small>${dashboard.returnsFutureCount || 0} a venir ensuite</small></div>
           <div class="kpi kpi-red"><p>Alertes ouvertes</p><h3>${dashboard.incidents.length + dashboard.late.length}</h3></div>
         </div>
         <div class="grid-2">
@@ -316,8 +316,8 @@
               <td>
                 <div class="inline-actions">
                   ${item.drive_folder_url ? `<a class="button button-secondary" href="${escapeHtml(item.drive_folder_url)}" target="_blank">Dossier</a>` : ''}
-                  ${item.status !== 'signed' ? `<button class="button button-accent" onclick="triggerDashboardSignedUpload('${item.id}')">Televerser signe</button>` : ''}
-                  ${item.status !== 'signed' ? `<button class="button button-secondary" onclick="forceDashboardSigned('${item.id}')">Forcer SIGNED</button>` : ''}
+                  ${item.status === 'draft' ? `<button class="button button-accent" onclick="triggerDashboardSignedUpload('${item.id}')">Televerser signe</button>` : ''}
+                  ${item.status === 'draft' ? `<button class="button button-secondary" onclick="forceDashboardSigned('${item.id}')">Forcer SIGNED</button>` : ''}
                   <button class="button button-secondary" onclick="triggerDashboardUpload('${item.id}')">Ajouter une piece</button>
                 </div>
               </td>

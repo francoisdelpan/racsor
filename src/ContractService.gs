@@ -37,15 +37,33 @@ var RacsorContractService = (function () {
     var today = RacsorUtils.toDateOnlyString(new Date());
     var transactions = RacsorRepository.getAll(RacsorConfig.SHEETS.TRANSACTIONS);
     var stockSnapshot = RacsorStockService.getStockSnapshot(today);
+    var pickupContracts = transactions.filter(function (item) {
+      return item.pickup_date >= today && ['signed', 'draft'].indexOf(item.status) !== -1;
+    });
+    var returnContracts = transactions.filter(function (item) {
+      return item.return_date >= today && ['picked_up', 'late', 'incident', 'signed'].indexOf(item.status) !== -1;
+    });
+    var pickupsToday = pickupContracts.filter(function (item) {
+      return item.pickup_date === today;
+    });
+    var returnsToday = returnContracts.filter(function (item) {
+      return item.return_date === today;
+    });
+    var pickupsFuture = pickupContracts.filter(function (item) {
+      return item.pickup_date > today;
+    });
+    var returnsFuture = returnContracts.filter(function (item) {
+      return item.return_date > today;
+    });
     return {
       today: today,
       stock: stockSnapshot,
-      pickups: transactions.filter(function (item) {
-        return item.pickup_date >= today && ['signed', 'draft'].indexOf(item.status) !== -1;
-      }).slice(0, 10),
-      returns: transactions.filter(function (item) {
-        return item.return_date >= today && ['picked_up', 'late', 'incident', 'signed'].indexOf(item.status) !== -1;
-      }).slice(0, 10),
+      pickups: pickupContracts.slice(0, 10),
+      returns: returnContracts.slice(0, 10),
+      pickupsTodayCount: pickupsToday.length,
+      returnsTodayCount: returnsToday.length,
+      pickupsFutureCount: pickupsFuture.length,
+      returnsFutureCount: returnsFuture.length,
       incidents: transactions.filter(function (item) {
         return item.status === 'incident';
       }).slice(0, 10),
