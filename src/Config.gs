@@ -5,7 +5,7 @@ var RacsorConfig = (function () {
     PRICES: 'Prices',
     TRANSACTIONS: 'Transactions',
     TRANSACTION_ITEMS: 'Transaction_Items',
-    STOCK_MOVEMENTS: 'Stock_Movements',
+    STOCK_MOVEMENTS: 'Stock_Mouvement',
     RETURN_STATES: 'Return_States',
     USERS: 'Users',
     LOGS: 'Logs'
@@ -58,7 +58,7 @@ var RacsorConfig = (function () {
   SHEET_HEADERS[SHEETS.PRICES] = ['id', 'product_id', 'pricing_rule_id', 'unit_price_ttc', 'is_active', 'created_at', 'updated_at'];
   SHEET_HEADERS[SHEETS.TRANSACTIONS] = ['id', 'contract_number', 'folder_name', 'client_first_name', 'client_last_name', 'client_full_name', 'client_address', 'client_zipcity', 'client_phone', 'client_email', 'pickup_date', 'pickup_hour', 'return_date', 'return_hour', 'status', 'total_amount_ttc', 'total_deposit_amount', 'drive_folder_id', 'generated_contract_file_id', 'signed_contract_file_id', 'pickup_calendar_event_id', 'return_calendar_event_id', 'return_details_json', 'created_by', 'created_at', 'updated_at', 'cancelled_at'];
   SHEET_HEADERS[SHEETS.TRANSACTION_ITEMS] = ['id', 'transaction_id', 'product_id', 'product_label_snapshot', 'quantity', 'pricing_rule_id', 'pricing_rule_code', 'pricing_label_snapshot', 'charged_days', 'unit_price_ttc', 'line_amount_ttc', 'deposit_unit_amount', 'deposit_line_amount'];
-  SHEET_HEADERS[SHEETS.STOCK_MOVEMENTS] = ['movement_date', 'product_id', 'transaction_id', 'movement_type', 'quantity_delta', 'balance_after'];
+  SHEET_HEADERS[SHEETS.STOCK_MOVEMENTS] = ['date'];
   SHEET_HEADERS[SHEETS.RETURN_STATES] = ['id', 'label', 'sort_order', 'is_default', 'is_active'];
   SHEET_HEADERS[SHEETS.USERS] = ['email', 'role', 'is_active', 'get_alert', 'created_at', 'updated_at'];
   SHEET_HEADERS[SHEETS.LOGS] = ['timestamp', 'user_email', 'action', 'entity_type', 'entity_id', 'details'];

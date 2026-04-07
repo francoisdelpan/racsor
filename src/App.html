@@ -17,7 +17,8 @@
     stockMatrixLoading: false,
     periodAvailabilityLoading: false,
     uploadTargetContractId: null,
-    loadingCount: 0
+    loadingCount: 0,
+    viewLoadToken: 0
   };
 
   function runServer(fnName, ...args) {
@@ -127,6 +128,7 @@
             </div>
           </div>
           <div class="topbar-meta">
+            <button class="button button-secondary button-compact" onclick="refreshAllData()" title="Rafraichir les donnees">↻</button>
             <strong>${escapeHtml(user.role)}</strong> · ${escapeHtml(user.email || 'Utilisateur non resolu')}
           </div>
         </header>
@@ -778,7 +780,9 @@
     `;
   }
 
-  function switchView(view) {
+  async function switchView(view) {
+    const token = Date.now();
+    state.viewLoadToken = token;
     state.currentView = view;
     render();
     setStatus('Vue ' + view + ' chargee.');
@@ -786,16 +790,16 @@
       setStatus('Vue stock prete. Clique sur "Charger" pour afficher la matrice.');
     }
     if (view === 'dashboard') {
-      refreshDashboard();
+      await refreshDashboard(true);
     }
     if (view === 'drive-pickup') {
-      loadContractsForView('pickupContracts', ['signed']);
+      await loadContractsForView('pickupContracts', ['signed'], token);
     }
     if (view === 'drive-return') {
-      loadContractsForView('driveReturnContracts', ['picked_up', 'late', 'incident']);
+      await loadContractsForView('driveReturnContracts', ['picked_up', 'late', 'incident'], token);
     }
     if (view === 'sav-return') {
-      loadContractsForView('savReturnContracts', ['returned', 'incident']);
+      await loadContractsForView('savReturnContracts', ['returned', 'incident'], token);
     }
   }
 
@@ -991,8 +995,7 @@
         mimeType: file.type,
         base64
       });
-      await refreshDashboard();
-      await loadContractsForView('pickupContracts', ['signed']);
+      await refreshAllData();
       render();
       setStatus('Contrat signe enregistre.');
     } catch (error) {
@@ -1022,8 +1025,7 @@
         mimeType: file.type,
         base64
       });
-      state.bootstrap.dashboard = await runServer('apiGetDashboardData');
-      render();
+      await refreshDashboard(true);
       setStatus('Piece jointe televersee.');
     } catch (error) {
       setStatus(error.message);
@@ -1039,7 +1041,7 @@
     setStatus('Annulation du contrat...');
     try {
       state.currentContract = await runServer('apiCancelContract', state.currentContract.transaction.id);
-      state.bootstrap.dashboard = await runServer('apiGetDashboardData');
+      await refreshDashboard(true);
       render();
       setStatus('Contrat annule.');
     } catch (error) {
@@ -1092,9 +1094,7 @@
     setStatus('Validation du retrait...');
     try {
       state.pickupContract = await runServer('apiMarkPickedUp', state.pickupContract.transaction.id);
-      await refreshDashboard();
-      await loadContractsForView('pickupContracts', ['signed']);
-      await loadContractsForView('driveReturnContracts', ['picked_up', 'late', 'incident']);
+      await refreshAllData();
       state.pickupContract = null;
       render();
       setStatus('Depart des marchandises confirme.');
@@ -1132,9 +1132,7 @@
         transaction_id: state.driveReturnContract.transaction.id,
         items: Object.values(productGroups)
       });
-      await refreshDashboard();
-      await loadContractsForView('driveReturnContracts', ['picked_up', 'late', 'incident']);
-      await loadContractsForView('savReturnContracts', ['returned', 'incident']);
+      await refreshAllData();
       state.driveReturnContract = null;
       render();
       setStatus('Retour enregistre.');
@@ -1150,8 +1148,7 @@
     setStatus('Cloture du dossier...');
     try {
       state.savReturnContract = await runServer('apiCloseContract', state.savReturnContract.transaction.id);
-      await refreshDashboard();
-      await loadContractsForView('savReturnContracts', ['returned', 'incident']);
+      await refreshAllData();
       state.savReturnContract = null;
       render();
       setStatus('Dossier clos.');
@@ -1172,7 +1169,6 @@
         container.innerHTML = renderStockMatrix();
       }
       state.stockMatrix = await runServerBackground('apiGetStockMatrix', startDate || state.bootstrap.dashboard.today, 45);
-      render();
       setStatus('Fiche de stock chargee.');
     } catch (error) {
       setStatus(error.message);
@@ -1191,6 +1187,7 @@
     state.currentView = 'dashboard';
     render();
     setStatus('Creation de contrat terminee.');
+    refreshDashboard(true).catch(error => setStatus(error.message));
   }
 
   async function submitInventory() {
@@ -1204,7 +1201,7 @@
     state.inventoryDate = payload.movement_date;
     try {
       await runServer('apiRecordInventoryBulk', payload);
-      await refreshDashboard();
+      await refreshDashboard(true);
       if (state.stockMatrix) {
         await loadStockMatrix();
       }
@@ -1232,17 +1229,21 @@
     return rule ? rule.label : pricingRuleId;
   }
 
-  async function refreshDashboard() {
+  async function refreshDashboard(shouldRender) {
     state.bootstrap.dashboard = await runServerBackground('apiGetDashboardData');
-    if (state.currentView === 'dashboard') {
+    if (shouldRender || state.currentView === 'dashboard') {
       render();
     }
   }
 
-  async function loadContractsForView(targetKey, statuses) {
+  async function loadContractsForView(targetKey, statuses, token) {
     setStatus('Chargement des contrats...');
     try {
-      state[targetKey] = await runServerBackground('apiListContractsByStatuses', statuses);
+      const rows = await runServerBackground('apiListContractsByStatuses', statuses);
+      if (token && token !== state.viewLoadToken) {
+        return;
+      }
+      state[targetKey] = rows;
       if (
         (targetKey === 'pickupContracts' && state.currentView === 'drive-pickup') ||
         (targetKey === 'driveReturnContracts' && state.currentView === 'drive-return') ||
@@ -1251,6 +1252,28 @@
         render();
       }
       setStatus('Contrats charges.');
+    } catch (error) {
+      setStatus(error.message);
+    }
+  }
+
+  async function refreshAllData() {
+    setStatus('Rafraichissement des donnees...');
+    try {
+      await refreshDashboard(state.currentView === 'dashboard');
+      if (state.currentView === 'drive-pickup') {
+        await loadContractsForView('pickupContracts', ['signed']);
+      }
+      if (state.currentView === 'drive-return') {
+        await loadContractsForView('driveReturnContracts', ['picked_up', 'late', 'incident']);
+      }
+      if (state.currentView === 'sav-return') {
+        await loadContractsForView('savReturnContracts', ['returned', 'incident']);
+      }
+      if (state.currentView === 'stock' && state.stockMatrix) {
+        await loadStockMatrix();
+      }
+      setStatus('Donnees rafraichies.');
     } catch (error) {
       setStatus(error.message);
     }

@@ -79,12 +79,14 @@ var RacsorRepository = (function () {
     if (rowIndex === -1) {
       throw new Error('Record not found in ' + name + ' for ' + idField + '=' + idValue);
     }
+    var rowValues = values[rowIndex - 1].slice();
     Object.keys(patch).forEach(function (key) {
       var col = headers.indexOf(key);
       if (col >= 0) {
-        sheet.getRange(rowIndex, col + 1).setValue(patch[key]);
+        rowValues[col] = patch[key];
       }
     });
+    sheet.getRange(rowIndex, 1, 1, headers.length).setValues([rowValues]);
   }
 
   function findBy(name, predicate) {

@@ -121,6 +121,50 @@ var RacsorDriveService = (function () {
     return { id: file.getId(), name: file.getName(), url: file.getUrl() };
   }
 
+  function saveFinalStateSummary(transaction, items, returns) {
+    var folder = getFolderSafe_(transaction.drive_folder_id);
+    if (!folder) {
+      folder = ensureContractFolder(transaction.folder_name);
+      folder = folder.id ? getFolderSafe_(folder.id) : null;
+    }
+    if (!folder) {
+      return { id: '', name: '', url: '' };
+    }
+    var fileName = transaction.folder_name + '_etat_final.txt';
+    trashExistingFilesByName_(folder, fileName);
+    var lines = [
+      'Contrat: ' + (transaction.contract_number || ''),
+      'Client: ' + (transaction.client_full_name || ''),
+      'Statut: ' + (transaction.status || ''),
+      'Retrait: ' + (transaction.pickup_date || '') + ' ' + (transaction.pickup_hour || ''),
+      'Retour: ' + (transaction.return_date || '') + ' ' + (transaction.return_hour || ''),
+      'Montant TTC: ' + (transaction.total_amount_ttc || 0) + ' EUR',
+      'Caution: ' + (transaction.total_deposit_amount || 0) + ' EUR',
+      ''
+    ];
+
+    if (items && items.length) {
+      lines.push('Produits loues:');
+      items.forEach(function (item) {
+        lines.push('- ' + item.product_label_snapshot + ' | Qté: ' + item.quantity);
+      });
+      lines.push('');
+    }
+
+    if (returns && returns.length) {
+      lines.push('Etat final:');
+      returns.forEach(function (entry) {
+        lines.push('- ' + (entry.product_label || entry.product_id) + ' | ' + (entry.state_label || entry.state_id) + ' | Qté: ' + entry.quantity + (entry.comment ? ' | ' + entry.comment : ''));
+      });
+    } else {
+      lines.push('Etat final: aucun detail de retour saisi.');
+    }
+
+    var blob = Utilities.newBlob(lines.join('\n'), 'text/plain', fileName);
+    var file = folder.createFile(blob);
+    return { id: file.getId(), name: file.getName(), url: file.getUrl() };
+  }
+
   function getFolderSafe_(folderId) {
     if (!folderId) {
       return null;
@@ -148,11 +192,19 @@ var RacsorDriveService = (function () {
     }
   }
 
+  function trashExistingFilesByName_(folder, fileName) {
+    var iterator = folder.getFilesByName(fileName);
+    while (iterator.hasNext()) {
+      iterator.next().setTrashed(true);
+    }
+  }
+
   return {
     ensureContractFolder: ensureContractFolder,
     createGeneratedContractFile: createGeneratedContractFile,
     saveSignedDocument: saveSignedDocument,
     saveDocumentToContractFolder: saveDocumentToContractFolder,
+    saveFinalStateSummary: saveFinalStateSummary,
     getFolderSafe_: getFolderSafe_,
     getFileSafe_: getFileSafe_
   };

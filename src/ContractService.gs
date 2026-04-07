@@ -36,9 +36,10 @@ var RacsorContractService = (function () {
   function getDashboardData() {
     var today = RacsorUtils.toDateOnlyString(new Date());
     var transactions = RacsorRepository.getAll(RacsorConfig.SHEETS.TRANSACTIONS);
+    var stockSnapshot = RacsorStockService.getStockSnapshot(today);
     return {
       today: today,
-      stock: RacsorStockService.getStockSnapshot(today),
+      stock: stockSnapshot,
       pickups: transactions.filter(function (item) {
         return item.pickup_date >= today && ['signed', 'draft'].indexOf(item.status) !== -1;
       }).slice(0, 10),
@@ -51,7 +52,15 @@ var RacsorContractService = (function () {
       late: transactions.filter(function (item) {
         return item.status === 'late';
       }).slice(0, 10),
-      stockAlerts: RacsorStockService.getNegativeAlerts_(),
+      stockAlerts: stockSnapshot.filter(function (item) {
+        return item.available < 0;
+      }).map(function (item) {
+        return {
+          product_id: item.product_id,
+          product_name: item.product_name,
+          available: item.available
+        };
+      }),
       recentContracts: transactions.slice().sort(function (a, b) {
         return String(b.created_at).localeCompare(String(a.created_at));
       }).slice(0, 12).map(enrichTransactionFiles_)
@@ -69,6 +78,7 @@ var RacsorContractService = (function () {
     var customerSlug = RacsorUtils.slugifyName(payload.client_last_name || 'CLIENT');
     var folderName = contractNumber + '_' + customerSlug;
     var quote = RacsorPricingService.computeQuote(payload);
+    RacsorStockService.assertAvailabilityOrThrow(quote.items, payload.pickup_date, payload.return_date);
     var folder = RacsorDriveService.ensureContractFolder(folderName);
     var userContext = getCurrentUserRole();
     var transactionId = RacsorUtils.createId('TRX');
@@ -108,7 +118,7 @@ var RacsorContractService = (function () {
       item.transaction_id = transactionId;
       return item;
     }));
-    RacsorStockService.reserveStock(transactionId, quote.items, payload.pickup_date);
+    RacsorStockService.applyStockOut(quote.items, payload.pickup_date);
 
     var generatedFile = RacsorDriveService.createGeneratedContractFile(transaction, quote.items);
     var events = RacsorCalendarService.createContractEvents(transaction, quote.items, folder.url || '');
@@ -143,6 +153,27 @@ var RacsorContractService = (function () {
       items: items,
       returns: returns
     };
+  }
+
+  function buildReturnSummaryRows_(contractData) {
+    var productMap = {};
+    var stateMap = {};
+    (contractData.items || []).forEach(function (item) {
+      productMap[item.product_id] = item.product_label_snapshot || item.product_id;
+    });
+    RacsorRepository.getAll(RacsorConfig.SHEETS.RETURN_STATES).forEach(function (item) {
+      stateMap[item.id] = item.label || item.id;
+    });
+    return (contractData.returns || []).map(function (entry) {
+      return {
+        product_id: entry.product_id,
+        product_label: productMap[entry.product_id] || entry.product_id,
+        state_id: entry.state_id,
+        state_label: stateMap[entry.state_id] || entry.state_id,
+        quantity: entry.quantity,
+        comment: entry.comment || ''
+      };
+    });
   }
 
   function enrichTransactionFiles_(transaction) {
@@ -198,6 +229,7 @@ var RacsorContractService = (function () {
       is_active: payload.is_active,
       updated_at: RacsorUtils.nowIso()
     });
+    RacsorStockService.ensureStockSheetExists();
     return getReferenceData();
   }
 
@@ -222,6 +254,7 @@ var RacsorContractService = (function () {
       created_at: RacsorUtils.nowIso(),
       updated_at: RacsorUtils.nowIso()
     }]);
+    RacsorStockService.ensureStockSheetExists();
     return getReferenceData();
   }
 
@@ -288,7 +321,12 @@ var RacsorContractService = (function () {
     if (['cancelled', 'returned', 'closed'].indexOf(data.transaction.status) !== -1) {
       throw new Error('Ce contrat ne peut plus etre annule.');
     }
-    RacsorStockService.releaseReservation(transactionId, data.transaction.pickup_date);
+    RacsorStockService.applyStockIn(data.items.map(function (item) {
+      return {
+        product_id: item.product_id,
+        quantity: Number(item.quantity || 0)
+      };
+    }), data.transaction.pickup_date);
     RacsorRepository.updateById(RacsorConfig.SHEETS.TRANSACTIONS, 'id', transactionId, {
       status: 'cancelled',
       updated_at: RacsorUtils.nowIso(),
@@ -340,14 +378,16 @@ var RacsorContractService = (function () {
       });
     });
 
-    RacsorStockService.recordReturn(payload.transaction_id, data.transaction.return_date, stockRows);
+    RacsorStockService.applyStockIn(stockRows, data.transaction.return_date);
     RacsorRepository.updateById(RacsorConfig.SHEETS.TRANSACTIONS, 'id', payload.transaction_id, {
       status: hasIncident ? 'incident' : 'returned',
       return_details_json: JSON.stringify(rows),
       updated_at: RacsorUtils.nowIso()
     });
     RacsorLogService.log('RECORD_RETURN', 'transaction', payload.transaction_id, { has_incident: hasIncident });
-    return getContractById(payload.transaction_id);
+    var updatedContract = getContractById(payload.transaction_id);
+    RacsorDriveService.saveFinalStateSummary(updatedContract.transaction, updatedContract.items, buildReturnSummaryRows_(updatedContract));
+    return updatedContract;
   }
 
   function closeContract(transactionId) {
@@ -356,7 +396,9 @@ var RacsorContractService = (function () {
       updated_at: RacsorUtils.nowIso()
     });
     RacsorLogService.log('CLOSE_CONTRACT', 'transaction', transactionId, {});
-    return getContractById(transactionId);
+    var updatedContract = getContractById(transactionId);
+    RacsorDriveService.saveFinalStateSummary(updatedContract.transaction, updatedContract.items, buildReturnSummaryRows_(updatedContract));
+    return updatedContract;
   }
 
   return {

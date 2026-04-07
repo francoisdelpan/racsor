@@ -4,6 +4,12 @@ function initializeProject() {
   });
 
   seedDefaultData_();
+  RacsorStockService.ensureStockSheetExists();
+  if (!hasStockBaseData_()) {
+    RacsorStockService.initializeStockBase_(new Date());
+  } else {
+    RacsorStockService.ensureDatesUntil(new Date());
+  }
   RacsorLogService.log('INITIALIZE_PROJECT', 'system', 'setup', {});
   return 'Initialization complete';
 }
@@ -34,24 +40,12 @@ function seedDefaultData_() {
     RacsorRepository.append(RacsorConfig.SHEETS.RETURN_STATES, RacsorConfig.DEFAULT_STATES);
   }
 
-  if (!RacsorRepository.getAll(RacsorConfig.SHEETS.STOCK_MOVEMENTS).length) {
-    initializeStockBase_();
-  }
+  RacsorStockService.ensureStockSheetExists();
 }
 
-function initializeStockBase_() {
-  var today = RacsorUtils.toDateOnlyString(new Date());
-  var rows = RacsorConfig.DEFAULT_PRODUCTS.map(function (product) {
-    return {
-      movement_date: today,
-      product_id: product.id,
-      transaction_id: '',
-      movement_type: 'inventory',
-      quantity_delta: Number(product.stock_max || 0),
-      balance_after: Number(product.stock_max || 0)
-    };
-  });
-  RacsorRepository.append(RacsorConfig.SHEETS.STOCK_MOVEMENTS, rows);
+function hasStockBaseData_() {
+  var sheet = RacsorRepository.getSheet(RacsorConfig.SHEETS.STOCK_MOVEMENTS);
+  return sheet.getLastRow() >= 2;
 }
 
 function seedDemoUsersIfMissing() {
