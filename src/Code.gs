@@ -27,6 +27,10 @@ function apiFindContractByNumber(contractNumber) {
   return RacsorContractService.findContractByNumber(contractNumber);
 }
 
+function apiGetContractById(transactionId) {
+  return RacsorContractService.getContractById(transactionId);
+}
+
 function apiMarkContractSigned(transactionId, filePayload) {
   return RacsorContractService.markContractSigned(transactionId, filePayload);
 }

@@ -716,7 +716,7 @@
               <td>${escapeHtml(item.contract_number)}</td>
               <td>${escapeHtml(item.client_full_name)}</td>
               <td>${escapeHtml(formatDateShort(context === 'pickup' ? item.pickup_date : item.return_date, true))}</td>
-              <td><button class="button button-secondary" onclick="loadContractForContext('${context}', '${item.contract_number}')">Ouvrir</button></td>
+              <td><button class="button button-secondary" onclick="loadContractForContextById('${context}', '${item.id}')">Ouvrir</button></td>
             </tr>
           `).join('')}
         </tbody>
@@ -956,10 +956,10 @@
       setStatus('Saisis un numero de contrat.');
       return;
     }
-    await loadContractForContext(context, contractNumber);
+    await loadContractForContextByNumber(context, contractNumber);
   }
 
-  async function loadContractForContext(context, contractNumber) {
+  async function loadContractForContextByNumber(context, contractNumber) {
     setStatus('Recherche du contrat...');
     try {
       const contract = await runServer('apiFindContractByNumber', contractNumber);
@@ -968,6 +968,20 @@
       if (context === 'savReturn') state.savReturnContract = contract;
       render();
       setStatus('Contrat trouve.');
+    } catch (error) {
+      setStatus(error.message);
+    }
+  }
+
+  async function loadContractForContextById(context, transactionId) {
+    setStatus('Chargement du contrat...');
+    try {
+      const contract = await runServer('apiGetContractById', transactionId);
+      if (context === 'pickup') state.pickupContract = contract;
+      if (context === 'driveReturn') state.driveReturnContract = contract;
+      if (context === 'savReturn') state.savReturnContract = contract;
+      render();
+      setStatus('Contrat charge.');
     } catch (error) {
       setStatus(error.message);
     }
