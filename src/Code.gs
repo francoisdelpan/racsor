@@ -31,6 +31,10 @@ function apiMarkContractSigned(transactionId, filePayload) {
   return RacsorContractService.markContractSigned(transactionId, filePayload);
 }
 
+function apiUploadContractDocument(transactionId, filePayload) {
+  return RacsorContractService.uploadContractDocument(transactionId, filePayload);
+}
+
 function apiMarkPickedUp(transactionId) {
   return RacsorContractService.markPickedUp(transactionId);
 }

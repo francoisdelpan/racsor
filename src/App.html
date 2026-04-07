@@ -12,6 +12,7 @@
     periodAvailability: [],
     stockMatrixLoading: false,
     periodAvailabilityLoading: false,
+    uploadTargetContractId: null,
     loadingCount: 0
   };
 
@@ -71,7 +72,32 @@
   }
 
   function formatCurrency(value) {
-    return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(Number(value || 0));
+    return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(parseNumeric(value));
+  }
+
+  function parseNumeric(value) {
+    if (typeof value === 'number') {
+      return Number.isFinite(value) ? value : 0;
+    }
+    if (value === null || value === undefined || value === '') {
+      return 0;
+    }
+    const normalized = String(value).replace(/\s/g, '').replace(',', '.');
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  function formatDateShort(value, withWeekday = false) {
+    if (!value) {
+      return '';
+    }
+    const date = new Date(value);
+    return new Intl.DateTimeFormat('fr-FR', {
+      weekday: withWeekday ? 'short' : undefined,
+      day: '2-digit',
+      month: '2-digit',
+      year: '2-digit'
+    }).format(date);
   }
 
   function render() {
@@ -191,7 +217,7 @@
         </div>
         <div class="grid-2">
           <div class="panel">
-            <div class="panel-title"><h3>Stock du jour</h3></div>
+            <div class="panel-title"><h3>Stock du jour · ${formatDateShort(dashboard.today, true)}</h3></div>
             ${renderStockSummaryTable(dashboard.stock)}
           </div>
           <div class="panel">
@@ -201,7 +227,7 @@
         </div>
         <div class="panel">
           <div class="panel-title"><h3>Derniers contrats crees</h3></div>
-          ${renderContractList(dashboard.recentContracts || [])}
+          ${renderRecentContractsTable(dashboard.recentContracts || [])}
         </div>
       </section>
     `;
@@ -239,12 +265,42 @@
             <tr>
               <td>${escapeHtml(item.contract_number)}</td>
               <td>${escapeHtml(item.client_full_name)}</td>
-              <td>${escapeHtml(item.pickup_date)} / ${escapeHtml(item.return_date)}</td>
+              <td>${escapeHtml(formatDateShort(item.pickup_date, true))} / ${escapeHtml(formatDateShort(item.return_date, true))}</td>
               <td><span class="tag tag-${escapeHtml(item.status)}">${escapeHtml(item.status)}</span></td>
             </tr>
           `).join('')}
         </tbody>
       </table>
+    `;
+  }
+
+  function renderRecentContractsTable(items) {
+    if (!items.length) {
+      return '<p class="muted">Aucun contrat a afficher.</p>';
+    }
+    return `
+      <table>
+        <thead>
+          <tr><th>Contrat</th><th>Client</th><th>Contact</th><th>Statut</th><th></th></tr>
+        </thead>
+        <tbody>
+          ${items.map(item => `
+            <tr>
+              <td>${escapeHtml(item.contract_number)}</td>
+              <td>${escapeHtml(item.client_full_name)}</td>
+              <td>${escapeHtml(item.client_phone || item.client_email || '-')}</td>
+              <td><span class="tag tag-${escapeHtml(item.status)}">${escapeHtml(item.status)}</span></td>
+              <td>
+                <div class="inline-actions">
+                  ${item.drive_folder_url ? `<a class="button button-secondary" href="${escapeHtml(item.drive_folder_url)}" target="_blank">Dossier</a>` : ''}
+                  <button class="button button-secondary" onclick="triggerDashboardUpload('${item.id}')">Ajouter une piece</button>
+                </div>
+              </td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+      <input id="dashboard-upload-input" class="hidden" type="file" onchange="uploadDashboardDocument(event)">
     `;
   }
 
@@ -340,7 +396,7 @@
           ${transaction.signed_contract_url ? ` · <a href="${escapeHtml(transaction.signed_contract_url)}" target="_blank">Contrat signe</a>` : ''}
         </p>
         <div class="inline-actions">
-          <button class="button button-secondary" onclick="document.getElementById('signed-upload').click()">Televerser contrat signe</button>
+          <button class="button button-accent" onclick="document.getElementById('signed-upload').click()">Televerser contrat signe</button>
           <input id="signed-upload" class="hidden" type="file" onchange="uploadSignedContract(event)">
           <button class="button button-secondary" onclick="endContractCreation()">Terminer la creation de contrat</button>
           <button class="button button-danger" onclick="cancelCurrentContract()">Annuler le contrat</button>
@@ -374,7 +430,7 @@
           <h2>${escapeHtml(transaction.contract_number)} · ${escapeHtml(transaction.client_full_name)}</h2>
           <span class="tag tag-${escapeHtml(transaction.status)}">${escapeHtml(transaction.status)}</span>
         </div>
-        <p class="muted">Retrait prevu: ${escapeHtml(transaction.pickup_date)} ${escapeHtml(transaction.pickup_hour || '')}</p>
+        <p class="muted">Retrait prevu: ${escapeHtml(formatDateShort(transaction.pickup_date, true))} ${escapeHtml(transaction.pickup_hour || '')}</p>
         <p class="muted">
           ${transaction.signed_contract_url ? `<a href="${escapeHtml(transaction.signed_contract_url)}" target="_blank">Ouvrir le contrat signe</a>` : 'Contrat signe non disponible'}
           ${transaction.drive_folder_url ? ` · <a href="${escapeHtml(transaction.drive_folder_url)}" target="_blank">Ouvrir le dossier</a>` : ''}
@@ -413,7 +469,7 @@
           <h2>${escapeHtml(transaction.contract_number)} · ${escapeHtml(transaction.client_full_name)}</h2>
           <span class="tag tag-${escapeHtml(transaction.status)}">${escapeHtml(transaction.status)}</span>
         </div>
-        <p class="muted">Retour prevu: ${escapeHtml(transaction.return_date)} ${escapeHtml(transaction.return_hour || '')}</p>
+        <p class="muted">Retour prevu: ${escapeHtml(formatDateShort(transaction.return_date, true))} ${escapeHtml(transaction.return_hour || '')}</p>
       </section>
       <section class="panel">
         <div class="panel-title"><h2>Controle qualite</h2></div>
@@ -470,7 +526,7 @@
           <h2>${escapeHtml(transaction.contract_number)} · ${escapeHtml(transaction.client_full_name)}</h2>
           <span class="tag tag-${escapeHtml(transaction.status)}">${escapeHtml(transaction.status)}</span>
         </div>
-        <p class="muted">Rendu le ${escapeHtml(transaction.return_date)} ${escapeHtml(transaction.return_hour || '')}</p>
+        <p class="muted">Rendu le ${escapeHtml(formatDateShort(transaction.return_date, true))} ${escapeHtml(transaction.return_hour || '')}</p>
         <div class="grid-2">
           <div class="panel inset-panel">
             <div class="panel-title"><h3>Recap retour</h3></div>
@@ -533,14 +589,17 @@
     }
     const visibleProducts = state.stockMatrix.products.filter(product => !state.stockMatrixHiddenProducts[product.product_id]);
     return `
-      <div class="product-toggle-list">
-        ${state.stockMatrix.products.map(product => `
-          <label class="toggle-pill">
-            <input type="checkbox" ${state.stockMatrixHiddenProducts[product.product_id] ? '' : 'checked'} onchange="toggleStockProduct('${product.product_id}')">
-            <span>${escapeHtml(product.product_name)}</span>
-          </label>
-        `).join('')}
-      </div>
+      <details class="filter-dropdown">
+        <summary>Filtres produits</summary>
+        <div class="product-toggle-list">
+          ${state.stockMatrix.products.map(product => `
+            <label class="toggle-pill">
+              <input type="checkbox" ${state.stockMatrixHiddenProducts[product.product_id] ? '' : 'checked'} onchange="toggleStockProduct('${product.product_id}')">
+              <span>${escapeHtml(product.product_name)}</span>
+            </label>
+          `).join('')}
+        </div>
+      </details>
       <div class="table-scroll">
         <table class="stock-matrix-table">
           <thead>
@@ -552,7 +611,7 @@
           <tbody>
             ${state.stockMatrix.rows.map(row => `
               <tr>
-                <td class="${row.is_monday ? 'is-monday' : ''} ${row.is_first_of_month ? 'is-month-start' : ''}">${escapeHtml(row.date)}</td>
+                <td class="${row.is_monday ? 'is-monday' : ''} ${row.is_first_of_month ? 'is-month-start' : ''}">${escapeHtml(formatDateShort(row.date, true))}</td>
                 ${visibleProducts.map(product => `<td>${row.products[product.product_id]}</td>`).join('')}
               </tr>
             `).join('')}
@@ -603,7 +662,7 @@
             <tr>
               <td>${escapeHtml(item.contract_number)}</td>
               <td>${escapeHtml(item.client_full_name)}</td>
-              <td>${escapeHtml(context === 'pickup' ? item.pickup_date : item.return_date)}</td>
+              <td>${escapeHtml(formatDateShort(context === 'pickup' ? item.pickup_date : item.return_date, true))}</td>
               <td><button class="button button-secondary" onclick="loadContractForContext('${context}', '${item.contract_number}')">Ouvrir</button></td>
             </tr>
           `).join('')}
@@ -777,6 +836,38 @@
     }
   }
 
+  function triggerDashboardUpload(transactionId) {
+    state.uploadTargetContractId = transactionId;
+    const input = document.getElementById('dashboard-upload-input');
+    if (input) {
+      input.value = '';
+      input.click();
+    }
+  }
+
+  async function uploadDashboardDocument(event) {
+    const file = event.target.files[0];
+    if (!file || !state.uploadTargetContractId) {
+      return;
+    }
+    setStatus('Televersement de la piece jointe...');
+    const base64 = await fileToBase64(file);
+    try {
+      await runServer('apiUploadContractDocument', state.uploadTargetContractId, {
+        name: file.name,
+        mimeType: file.type,
+        base64
+      });
+      state.bootstrap.dashboard = await runServer('apiGetDashboardData');
+      render();
+      setStatus('Piece jointe televersee.');
+    } catch (error) {
+      setStatus(error.message);
+    } finally {
+      state.uploadTargetContractId = null;
+    }
+  }
+
   async function cancelCurrentContract() {
     if (!state.currentContract) {
       return;
@@ -907,6 +998,7 @@
   function endContractCreation() {
     state.currentContract = null;
     state.periodAvailability = [];
+    state.currentView = 'dashboard';
     render();
     setStatus('Creation de contrat terminee.');
   }

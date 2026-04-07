@@ -47,14 +47,18 @@ var RacsorPricingService = (function () {
       if (!product) {
         throw new Error('Produit introuvable: ' + item.product_id);
       }
-      var price = prices.filter(function (entry) {
+      var productPrices = prices.filter(function (entry) {
         return entry.product_id === item.product_id;
-      }).find(function (entry) {
+      });
+      var price = productPrices.find(function (entry) {
         var rule = pricingRules.find(function (candidate) {
           return candidate.id === entry.pricing_rule_id;
         });
         return rule && rule.code === ruleCode;
       });
+      if (!price) {
+        price = findFallbackPrice_(productPrices, pricingRules, ruleCode);
+      }
       if (!price) {
         throw new Error('Tarif manquant pour ' + product.name + ' et la regle ' + ruleCode);
       }
@@ -84,6 +88,42 @@ var RacsorPricingService = (function () {
     });
 
     return totals;
+  }
+
+  function findFallbackPrice_(productPrices, pricingRules, ruleCode) {
+    if (ruleCode === 'WEEKEND') {
+      return null;
+    }
+    var targetRule = pricingRules.find(function (rule) {
+      return rule.code === ruleCode;
+    });
+    if (!targetRule) {
+      return null;
+    }
+    var targetValue = Number(targetRule.value || 0);
+    var candidates = productPrices.map(function (entry) {
+      var rule = pricingRules.find(function (candidate) {
+        return candidate.id === entry.pricing_rule_id;
+      });
+      return {
+        price: entry,
+        rule: rule
+      };
+    }).filter(function (entry) {
+      return entry.rule && entry.rule.type === 'lessThanOrEqualDays';
+    });
+    var lower = candidates.filter(function (entry) {
+      return Number(entry.rule.value || 0) <= targetValue;
+    }).sort(function (a, b) {
+      return Number(b.rule.value || 0) - Number(a.rule.value || 0);
+    });
+    if (lower.length) {
+      return lower[0].price;
+    }
+    var higher = candidates.sort(function (a, b) {
+      return Number(a.rule.value || 0) - Number(b.rule.value || 0);
+    });
+    return higher.length ? higher[0].price : null;
   }
 
   return {

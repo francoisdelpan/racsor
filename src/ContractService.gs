@@ -181,7 +181,7 @@ var RacsorContractService = (function () {
 
   function markContractSigned(transactionId, filePayload) {
     var data = getContractById(transactionId);
-    if (!data.transaction.drive_folder_id) {
+    if (!data.transaction.drive_folder_id || !RacsorDriveService.getFolderSafe_(data.transaction.drive_folder_id)) {
       var folder = RacsorDriveService.ensureContractFolder(data.transaction.folder_name);
       RacsorRepository.updateById(RacsorConfig.SHEETS.TRANSACTIONS, 'id', transactionId, {
         drive_folder_id: folder.id,
@@ -196,6 +196,21 @@ var RacsorContractService = (function () {
       updated_at: RacsorUtils.nowIso()
     });
     RacsorLogService.log('SIGN_CONTRACT', 'transaction', transactionId, { file_id: file.id });
+    return getContractById(transactionId);
+  }
+
+  function uploadContractDocument(transactionId, filePayload) {
+    var data = getContractById(transactionId);
+    if (!data.transaction.drive_folder_id || !RacsorDriveService.getFolderSafe_(data.transaction.drive_folder_id)) {
+      var folder = RacsorDriveService.ensureContractFolder(data.transaction.folder_name);
+      RacsorRepository.updateById(RacsorConfig.SHEETS.TRANSACTIONS, 'id', transactionId, {
+        drive_folder_id: folder.id,
+        updated_at: RacsorUtils.nowIso()
+      });
+      data = getContractById(transactionId);
+    }
+    var file = RacsorDriveService.saveDocumentToContractFolder(data.transaction, filePayload);
+    RacsorLogService.log('UPLOAD_DOCUMENT', 'transaction', transactionId, { file_id: file.id, name: file.name });
     return getContractById(transactionId);
   }
 
@@ -292,6 +307,7 @@ var RacsorContractService = (function () {
     getContractById: getContractById,
     findContractByNumber: findContractByNumber,
     markContractSigned: markContractSigned,
+    uploadContractDocument: uploadContractDocument,
     markPickedUp: markPickedUp,
     cancelContract: cancelContract,
     recordReturn: recordReturn,

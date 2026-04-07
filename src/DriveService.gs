@@ -90,16 +90,33 @@ var RacsorDriveService = (function () {
   }
 
   function saveSignedDocument(transaction, filePayload) {
-    if (!transaction.drive_folder_id) {
-      throw new Error('Drive root folder non configure.');
-    }
     var folder = getFolderSafe_(transaction.drive_folder_id);
+    if (!folder) {
+      folder = ensureContractFolder(transaction.folder_name);
+      folder = folder.id ? getFolderSafe_(folder.id) : null;
+    }
     if (!folder) {
       throw new Error('Dossier Drive du contrat introuvable ou inaccessible.');
     }
     var contentType = filePayload.mimeType || 'application/octet-stream';
     var extension = filePayload.name && filePayload.name.indexOf('.') > -1 ? filePayload.name.split('.').pop() : 'bin';
     var blob = Utilities.newBlob(Utilities.base64Decode(filePayload.base64), contentType, transaction.folder_name + '_signed.' + extension);
+    var file = folder.createFile(blob);
+    return { id: file.getId(), name: file.getName(), url: file.getUrl() };
+  }
+
+  function saveDocumentToContractFolder(transaction, filePayload) {
+    var folder = getFolderSafe_(transaction.drive_folder_id);
+    if (!folder) {
+      folder = ensureContractFolder(transaction.folder_name);
+      folder = folder.id ? getFolderSafe_(folder.id) : null;
+    }
+    if (!folder) {
+      throw new Error('Dossier Drive du contrat introuvable ou inaccessible.');
+    }
+    var contentType = filePayload.mimeType || 'application/octet-stream';
+    var fileName = filePayload.name || ('piece_' + transaction.contract_number);
+    var blob = Utilities.newBlob(Utilities.base64Decode(filePayload.base64), contentType, fileName);
     var file = folder.createFile(blob);
     return { id: file.getId(), name: file.getName(), url: file.getUrl() };
   }
@@ -135,6 +152,7 @@ var RacsorDriveService = (function () {
     ensureContractFolder: ensureContractFolder,
     createGeneratedContractFile: createGeneratedContractFile,
     saveSignedDocument: saveSignedDocument,
+    saveDocumentToContractFolder: saveDocumentToContractFolder,
     getFolderSafe_: getFolderSafe_,
     getFileSafe_: getFileSafe_
   };
