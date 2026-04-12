@@ -51,6 +51,7 @@ function hasStockBaseData_() {
 
 function seedDefaultRespUsers_() {
   var defaultEmails = [
+    'francois_pannier@franchise.carrefour.com',
     'gaelle_botineau@franchise.carrefour.com',
     'emmanuel_denelle@franchise.carrefour.com'
   ];

@@ -10,6 +10,7 @@ function include(filename) {
 }
 
 function getAppBootstrapData() {
+  seedDefaultRespUsers_();
   return {
     settings: RacsorConfig.getProjectSettings(),
     colors: RacsorConfig.COLORS,
