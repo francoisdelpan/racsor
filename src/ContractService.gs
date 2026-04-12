@@ -15,8 +15,8 @@ var RacsorContractService = (function () {
     };
   }
 
-  function getReferenceData() {
-    return {
+  function getReferenceData(includeUsers) {
+    var data = {
       products: RacsorRepository.getAll(RacsorConfig.SHEETS.PRODUCTS).filter(function (item) {
         return String(item.is_active) !== 'false';
       }),
@@ -28,8 +28,18 @@ var RacsorContractService = (function () {
       }),
       returnStates: RacsorRepository.getAll(RacsorConfig.SHEETS.RETURN_STATES).filter(function (item) {
         return String(item.is_active) !== 'false';
-      }),
-      users: RacsorRepository.getAll(RacsorConfig.SHEETS.USERS)
+      })
+    };
+    if (includeUsers) {
+      data.users = RacsorRepository.getAll(RacsorConfig.SHEETS.USERS);
+    }
+    return data;
+  }
+
+  function getAdminData() {
+    return {
+      referenceData: getReferenceData(true),
+      closedContracts: getDashboardData().closedContracts || []
     };
   }
 
@@ -242,7 +252,7 @@ var RacsorContractService = (function () {
         updated_at: RacsorUtils.nowIso()
       }]);
     }
-    return getReferenceData();
+    return getReferenceData(true);
   }
 
   function updateProductAdmin(payload) {
@@ -253,7 +263,7 @@ var RacsorContractService = (function () {
       updated_at: RacsorUtils.nowIso()
     });
     RacsorStockService.ensureStockSheetExists();
-    return getReferenceData();
+    return getReferenceData(true);
   }
 
   function updatePriceAdmin(payload) {
@@ -262,7 +272,7 @@ var RacsorContractService = (function () {
       is_active: payload.is_active,
       updated_at: RacsorUtils.nowIso()
     });
-    return getReferenceData();
+    return getReferenceData(true);
   }
 
   function addProductAdmin(payload) {
@@ -278,7 +288,30 @@ var RacsorContractService = (function () {
       updated_at: RacsorUtils.nowIso()
     }]);
     RacsorStockService.ensureStockSheetExists();
-    return getReferenceData();
+    return getReferenceData(true);
+  }
+
+  function updatePricingRuleAdmin(payload) {
+    RacsorRepository.updateById(RacsorConfig.SHEETS.PRICING_RULES, 'id', payload.id, {
+      code: payload.code,
+      type: payload.type,
+      value: payload.value,
+      label: payload.label,
+      is_active: payload.is_active
+    });
+    return getReferenceData(true);
+  }
+
+  function addPricingRuleAdmin(payload) {
+    RacsorRepository.append(RacsorConfig.SHEETS.PRICING_RULES, [{
+      id: RacsorUtils.createId('RULE'),
+      code: payload.code,
+      type: payload.type,
+      value: payload.value,
+      label: payload.label,
+      is_active: payload.is_active
+    }]);
+    return getReferenceData(true);
   }
 
   function findContractByNumber(contractNumber) {
@@ -453,12 +486,15 @@ var RacsorContractService = (function () {
   return {
     getCurrentUserRole: getCurrentUserRole,
     getReferenceData: getReferenceData,
+    getAdminData: getAdminData,
     getDashboardData: getDashboardData,
     listContractsByStatuses: listContractsByStatuses,
     upsertUser: upsertUser,
     updateProductAdmin: updateProductAdmin,
     updatePriceAdmin: updatePriceAdmin,
     addProductAdmin: addProductAdmin,
+    updatePricingRuleAdmin: updatePricingRuleAdmin,
+    addPricingRuleAdmin: addPricingRuleAdmin,
     createContract: createContract,
     getContractById: getContractById,
     findContractByNumber: findContractByNumber,

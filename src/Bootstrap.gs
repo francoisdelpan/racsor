@@ -41,11 +41,41 @@ function seedDefaultData_() {
   }
 
   RacsorStockService.ensureStockSheetExists();
+  seedDefaultRespUsers_();
 }
 
 function hasStockBaseData_() {
   var sheet = RacsorRepository.getSheet(RacsorConfig.SHEETS.STOCK_MOVEMENTS);
   return sheet.getLastRow() >= 2;
+}
+
+function seedDefaultRespUsers_() {
+  var defaultEmails = [
+    'gaelle_botineau@franchise.carrefour.com',
+    'emmanuel_denelle@franchise.carrefour.com'
+  ];
+  var existingUsers = RacsorRepository.getAll(RacsorConfig.SHEETS.USERS);
+  var existingByEmail = {};
+  existingUsers.forEach(function (user) {
+    existingByEmail[String(user.email || '').toLowerCase()] = true;
+  });
+
+  var rowsToInsert = defaultEmails.filter(function (email) {
+    return !existingByEmail[String(email).toLowerCase()];
+  }).map(function (email) {
+    return {
+      email: email,
+      role: 'RESP',
+      is_active: true,
+      get_alert: true,
+      created_at: RacsorUtils.nowIso(),
+      updated_at: RacsorUtils.nowIso()
+    };
+  });
+
+  if (rowsToInsert.length) {
+    RacsorRepository.append(RacsorConfig.SHEETS.USERS, rowsToInsert);
+  }
 }
 
 function seedDemoUsersIfMissing() {

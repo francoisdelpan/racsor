@@ -20,7 +20,9 @@
     uploadTargetContractId: null,
     uploadTargetMode: 'document',
     loadingCount: 0,
-    viewLoadToken: 0
+    viewLoadToken: 0,
+    adminSection: 'products',
+    adminDataLoaded: false
   };
 
   function runServer(fnName, ...args) {
@@ -703,93 +705,158 @@
   function renderAdminView() {
     const ref = state.bootstrap.referenceData;
     const closedContracts = state.bootstrap.dashboard.closedContracts || [];
+    const section = state.adminSection || 'products';
     return `
       <section class="panel">
         <div class="panel-title"><h2>Admin</h2></div>
-        <div class="panel inset-panel">
-          <div class="panel-title"><h3>Produits et tarifs</h3></div>
-          <div class="accordion-list">
-            ${ref.products.map(item => `
-              <details class="admin-accordion">
-                <summary>${escapeHtml(item.name)}</summary>
-                <div class="form-grid" style="margin-top:14px;">
-                  <div class="field"><label>Stock</label><input data-admin-product-stock="${item.id}" type="number" value="${item.stock_max}"></div>
-                  <div class="field"><label>Caution</label><input data-admin-product-deposit="${item.id}" type="number" step="0.01" value="${parseNumeric(item.deposit_amount)}"></div>
-                  <div class="field"><label>Actif</label><input data-admin-product-active="${item.id}" type="checkbox" ${String(item.is_active) === 'false' ? '' : 'checked'}></div>
-                </div>
-                <div class="button-row" style="margin-top:12px;">
-                  <button class="button button-secondary" onclick="saveProductAdmin('${item.id}')">Sauver le produit</button>
-                </div>
-                <table style="margin-top:14px;">
-                  <thead><tr><th>Regle</th><th>Prix TTC</th><th>Actif</th><th></th></tr></thead>
-                  <tbody>
-                    ${ref.prices.filter(price => price.product_id === item.id).map(price => `
-                      <tr>
-                        <td>${escapeHtml(findPricingRuleLabel(price.pricing_rule_id))}</td>
-                        <td><input data-admin-price="${price.id}" type="number" step="0.01" value="${parseNumeric(price.unit_price_ttc)}"></td>
-                        <td><input data-admin-price-active="${price.id}" type="checkbox" ${String(price.is_active) === 'false' ? '' : 'checked'}></td>
-                        <td><button class="button button-secondary" onclick="savePriceAdmin('${price.id}')">Sauver</button></td>
-                      </tr>
-                    `).join('')}
-                  </tbody>
-                </table>
-              </details>
-            `).join('')}
-          </div>
-          <div class="panel inset-panel" style="margin-top:18px;">
-            <div class="panel-title"><h3>Ajouter un produit</h3></div>
-            <div class="form-grid">
-              <div class="field field-full"><label>Nom</label><input id="admin-new-product-name"></div>
-              <div class="field"><label>Stock</label><input id="admin-new-product-stock" type="number" min="0" value="0"></div>
-              <div class="field"><label>Caution</label><input id="admin-new-product-deposit" type="number" step="0.01" value="0"></div>
-            </div>
-            <div class="button-row" style="margin-top:12px;">
-              <button class="button button-primary" onclick="addProductAdmin()">Ajouter le produit</button>
-            </div>
-          </div>
+        <div class="admin-subnav">
+          ${adminSectionButton('products', 'Produits')}
+          ${adminSectionButton('rules', 'Regles tarifaires')}
+          ${adminSectionButton('users', 'Utilisateurs')}
+          ${adminSectionButton('states', 'Etats retour')}
+          ${adminSectionButton('closed', 'Dossiers clotures')}
         </div>
-        <div class="grid-2">
-          <div class="panel inset-panel">
-            <div class="panel-title"><h3>Utilisateurs</h3></div>
-            <table>
-              <thead><tr><th>Email</th><th>Role</th><th>Alertes</th><th>Actif</th></tr></thead>
-              <tbody>
-                ${ref.users.map(item => `
-                  <tr>
-                    <td>${escapeHtml(item.email)}</td>
-                    <td>${escapeHtml(item.role)}</td>
-                    <td>${escapeHtml(String(item.get_alert))}</td>
-                    <td>${escapeHtml(String(item.is_active))}</td>
-                  </tr>
-                `).join('')}
-              </tbody>
-            </table>
-            <div class="form-grid" style="margin-top:16px;">
-              <div class="field field-full"><label>Email</label><input id="admin-user-email" type="email"></div>
-              <div class="field"><label>Role</label><select id="admin-user-role"><option>RESP</option><option>SAV</option><option>DRIVE</option></select></div>
-              <div class="field"><label>Alertes</label><select id="admin-user-alert"><option value="true">Oui</option><option value="false">Non</option></select></div>
-              <div class="field"><label>Actif</label><select id="admin-user-active"><option value="true">Oui</option><option value="false">Non</option></select></div>
-            </div>
-            <div class="button-row" style="margin-top:12px;">
-              <button class="button button-primary" onclick="saveUserAdmin()">Ajouter / mettre a jour</button>
-            </div>
-          </div>
-        </div>
-        <div class="panel inset-panel">
-          <div class="panel-title"><h3>Etats retour</h3></div>
-            <table>
-              <thead><tr><th>Label</th><th>Ordre</th><th>Actif</th></tr></thead>
-              <tbody>
-                ${ref.returnStates.map(item => `<tr><td>${escapeHtml(formatStateLabel(item.label))}</td><td>${item.sort_order}</td><td>${String(item.is_active)}</td></tr>`).join('')}
-              </tbody>
-            </table>
-          </div>
-        </div>
-        <div class="panel inset-panel">
-          <div class="panel-title"><h3>Dossiers clotures</h3></div>
-          ${renderClosedContractsTable(closedContracts)}
-        </div>
+        ${section === 'products' ? renderAdminProductsSection(ref) : ''}
+        ${section === 'rules' ? renderAdminRulesSection(ref) : ''}
+        ${section === 'users' ? renderAdminUsersSection(ref) : ''}
+        ${section === 'states' ? renderAdminStatesSection(ref) : ''}
+        ${section === 'closed' ? `<div class="panel inset-panel"><div class="panel-title"><h3>Dossiers clotures</h3></div>${renderClosedContractsTable(closedContracts)}</div>` : ''}
       </section>
+    `;
+  }
+
+  function adminSectionButton(section, label) {
+    return `<button class="admin-tab ${state.adminSection === section ? 'is-active' : ''}" onclick="switchAdminSection('${section}')">${label}</button>`;
+  }
+
+  function renderAdminProductsSection(ref) {
+    return `
+      <div class="panel inset-panel">
+        <div class="panel-title"><h3>Produits et tarifs</h3></div>
+        <div class="accordion-list">
+          ${ref.products.map(item => `
+            <details class="admin-accordion">
+              <summary>${escapeHtml(item.name)}</summary>
+              <div class="form-grid admin-section-grid">
+                <div class="field"><label>Stock</label><input data-admin-product-stock="${item.id}" type="number" value="${item.stock_max}"></div>
+                <div class="field"><label>Caution</label><input data-admin-product-deposit="${item.id}" type="number" step="0.01" value="${parseNumeric(item.deposit_amount)}"></div>
+                <div class="field"><label>Actif</label><input data-admin-product-active="${item.id}" type="checkbox" ${String(item.is_active) === 'false' ? '' : 'checked'}></div>
+              </div>
+              <div class="button-row admin-actions-row">
+                <button class="button button-secondary" onclick="saveProductAdmin('${item.id}')">Sauver le produit</button>
+              </div>
+              <table class="admin-table">
+                <thead><tr><th>Regle</th><th>Prix TTC</th><th>Actif</th><th></th></tr></thead>
+                <tbody>
+                  ${ref.prices.filter(price => price.product_id === item.id).map(price => `
+                    <tr>
+                      <td>${escapeHtml(findPricingRuleLabel(price.pricing_rule_id))}</td>
+                      <td><input data-admin-price="${price.id}" type="number" step="0.01" value="${parseNumeric(price.unit_price_ttc)}"></td>
+                      <td><input data-admin-price-active="${price.id}" type="checkbox" ${String(price.is_active) === 'false' ? '' : 'checked'}></td>
+                      <td><button class="button button-secondary" onclick="savePriceAdmin('${price.id}')">Sauver</button></td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </details>
+          `).join('')}
+        </div>
+        <div class="panel admin-creation-panel">
+          <div class="panel-title"><h3>Ajouter un produit</h3></div>
+          <div class="form-grid">
+            <div class="field field-full"><label>Nom</label><input id="admin-new-product-name"></div>
+            <div class="field"><label>Stock</label><input id="admin-new-product-stock" type="number" min="0" value="0"></div>
+            <div class="field"><label>Caution</label><input id="admin-new-product-deposit" type="number" step="0.01" value="0"></div>
+          </div>
+          <div class="button-row admin-actions-row">
+            <button class="button button-primary" onclick="addProductAdmin()">Ajouter le produit</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderAdminUsersSection(ref) {
+    return `
+      <div class="panel inset-panel">
+        <div class="panel-title"><h3>Utilisateurs</h3></div>
+        <table class="admin-table">
+          <thead><tr><th>Email</th><th>Role</th><th>Alertes</th><th>Actif</th></tr></thead>
+          <tbody>
+            ${ref.users.map(item => `
+              <tr>
+                <td>${escapeHtml(item.email)}</td>
+                <td>${escapeHtml(item.role)}</td>
+                <td>${escapeHtml(String(item.get_alert))}</td>
+                <td>${escapeHtml(String(item.is_active))}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+        <div class="form-grid admin-section-grid">
+          <div class="field field-full"><label>Email</label><input id="admin-user-email" type="email"></div>
+          <div class="field"><label>Role</label><select id="admin-user-role"><option>RESP</option><option>SAV</option><option>DRIVE</option></select></div>
+          <div class="field"><label>Alertes</label><select id="admin-user-alert"><option value="true">Oui</option><option value="false">Non</option></select></div>
+          <div class="field"><label>Actif</label><select id="admin-user-active"><option value="true">Oui</option><option value="false">Non</option></select></div>
+        </div>
+        <div class="button-row admin-actions-row">
+          <button class="button button-primary" onclick="saveUserAdmin()">Ajouter / mettre a jour</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderAdminRulesSection(ref) {
+    return `
+      <div class="panel inset-panel">
+        <div class="panel-title"><h3>Regles tarifaires</h3></div>
+        <table class="admin-table">
+          <thead><tr><th>Code</th><th>Type</th><th>Valeur</th><th>Label</th><th>Actif</th><th></th></tr></thead>
+          <tbody>
+            ${ref.pricingRules.map(item => `
+              <tr>
+                <td><input data-admin-rule-code="${item.id}" value="${escapeHtml(item.code)}"></td>
+                <td>
+                  <select data-admin-rule-type="${item.id}">
+                    <option value="weekend" ${item.type === 'weekend' ? 'selected' : ''}>weekend</option>
+                    <option value="lessThanOrEqualDays" ${item.type === 'lessThanOrEqualDays' ? 'selected' : ''}>lessThanOrEqualDays</option>
+                  </select>
+                </td>
+                <td><input data-admin-rule-value="${item.id}" value="${escapeHtml(item.value)}"></td>
+                <td><input data-admin-rule-label="${item.id}" value="${escapeHtml(item.label)}"></td>
+                <td><input data-admin-rule-active="${item.id}" type="checkbox" ${String(item.is_active) === 'false' ? '' : 'checked'}></td>
+                <td><button class="button button-secondary" onclick="savePricingRuleAdmin('${item.id}')">Sauver</button></td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+        <div class="panel admin-creation-panel">
+          <div class="panel-title"><h3>Ajouter une regle</h3></div>
+          <div class="form-grid">
+            <div class="field"><label>Code</label><input id="admin-new-rule-code"></div>
+            <div class="field"><label>Type</label><select id="admin-new-rule-type"><option value="weekend">weekend</option><option value="lessThanOrEqualDays">lessThanOrEqualDays</option></select></div>
+            <div class="field"><label>Valeur</label><input id="admin-new-rule-value"></div>
+            <div class="field"><label>Label</label><input id="admin-new-rule-label"></div>
+          </div>
+          <div class="button-row admin-actions-row">
+            <button class="button button-primary" onclick="addPricingRuleAdmin()">Ajouter la regle</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderAdminStatesSection(ref) {
+    return `
+      <div class="panel inset-panel">
+        <div class="panel-title"><h3>Etats retour</h3></div>
+        <table class="admin-table">
+          <thead><tr><th>Label</th><th>Ordre</th><th>Actif</th></tr></thead>
+          <tbody>
+            ${ref.returnStates.map(item => `<tr><td>${escapeHtml(formatStateLabel(item.label))}</td><td>${item.sort_order}</td><td>${String(item.is_active)}</td></tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
     `;
   }
 
@@ -860,6 +927,28 @@
     }
     if (view === 'sav-return') {
       await loadContractsForView('savReturnContracts', ['returned', 'incident'], token);
+    }
+    if (view === 'admin' && !state.adminDataLoaded) {
+      await loadAdminData();
+    }
+  }
+
+  function switchAdminSection(section) {
+    state.adminSection = section;
+    render();
+  }
+
+  async function loadAdminData() {
+    setStatus('Chargement de l espace admin...');
+    try {
+      const adminData = await runServerBackground('apiGetAdminData');
+      state.bootstrap.referenceData = adminData.referenceData;
+      state.bootstrap.dashboard.closedContracts = adminData.closedContracts || [];
+      state.adminDataLoaded = true;
+      render();
+      setStatus('Espace admin charge.');
+    } catch (error) {
+      setStatus(error.message);
     }
   }
 
@@ -1455,6 +1544,7 @@
       return;
     }
     state.bootstrap.referenceData = await runServer('apiUpsertUser', payload);
+    state.adminDataLoaded = true;
     render();
     setStatus('Utilisateur enregistre.');
   }
@@ -1467,6 +1557,7 @@
       is_active: document.querySelector(`[data-admin-product-active="${productId}"]`).checked
     };
     state.bootstrap.referenceData = await runServer('apiUpdateProductAdmin', payload);
+    state.adminDataLoaded = true;
     render();
     setStatus('Produit mis a jour.');
   }
@@ -1478,6 +1569,7 @@
       is_active: document.querySelector(`[data-admin-price-active="${priceId}"]`).checked
     };
     state.bootstrap.referenceData = await runServer('apiUpdatePriceAdmin', payload);
+    state.adminDataLoaded = true;
     render();
     setStatus('Tarif mis a jour.');
   }
@@ -1493,8 +1585,42 @@
       return;
     }
     state.bootstrap.referenceData = await runServer('apiAddProductAdmin', payload);
+    state.adminDataLoaded = true;
     render();
     setStatus('Produit ajoute.');
+  }
+
+  async function savePricingRuleAdmin(ruleId) {
+    const payload = {
+      id: ruleId,
+      code: document.querySelector(`[data-admin-rule-code="${ruleId}"]`).value.trim(),
+      type: document.querySelector(`[data-admin-rule-type="${ruleId}"]`).value,
+      value: document.querySelector(`[data-admin-rule-value="${ruleId}"]`).value.trim(),
+      label: document.querySelector(`[data-admin-rule-label="${ruleId}"]`).value.trim(),
+      is_active: document.querySelector(`[data-admin-rule-active="${ruleId}"]`).checked
+    };
+    state.bootstrap.referenceData = await runServer('apiUpdatePricingRuleAdmin', payload);
+    state.adminDataLoaded = true;
+    render();
+    setStatus('Regle tarifaire mise a jour.');
+  }
+
+  async function addPricingRuleAdmin() {
+    const payload = {
+      code: document.getElementById('admin-new-rule-code').value.trim(),
+      type: document.getElementById('admin-new-rule-type').value,
+      value: document.getElementById('admin-new-rule-value').value.trim(),
+      label: document.getElementById('admin-new-rule-label').value.trim(),
+      is_active: true
+    };
+    if (!payload.code || !payload.label) {
+      setStatus('Code et label requis pour la regle.');
+      return;
+    }
+    state.bootstrap.referenceData = await runServer('apiAddPricingRuleAdmin', payload);
+    state.adminDataLoaded = true;
+    render();
+    setStatus('Regle tarifaire ajoutee.');
   }
 
   function formatStateLabel(value) {

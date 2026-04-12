@@ -14,9 +14,13 @@ function getAppBootstrapData() {
     settings: RacsorConfig.getProjectSettings(),
     colors: RacsorConfig.COLORS,
     user: RacsorContractService.getCurrentUserRole(),
-    referenceData: RacsorContractService.getReferenceData(),
+    referenceData: RacsorContractService.getReferenceData(false),
     dashboard: RacsorContractService.getDashboardData()
   };
+}
+
+function apiGetAdminData() {
+  return RacsorContractService.getAdminData();
 }
 
 function apiCreateContract(payload) {
@@ -101,4 +105,12 @@ function apiRecordInventoryBulk(payload) {
 
 function apiAddProductAdmin(payload) {
   return RacsorContractService.addProductAdmin(payload);
+}
+
+function apiUpdatePricingRuleAdmin(payload) {
+  return RacsorContractService.updatePricingRuleAdmin(payload);
+}
+
+function apiAddPricingRuleAdmin(payload) {
+  return RacsorContractService.addPricingRuleAdmin(payload);
 }
