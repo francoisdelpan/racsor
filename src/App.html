@@ -319,7 +319,7 @@
           <div class="kpi kpi-blue"><p>Produits suivis</p><h3>${dashboard.stock.length}</h3></div>
           <div class="kpi kpi-orange"><p>Enlevements du jour</p><h3>${dashboard.pickupsTodayCount || 0}</h3><small>${dashboard.pickupsFutureCount || 0} a venir ensuite</small></div>
           <div class="kpi kpi-green"><p>Retours du jour</p><h3>${dashboard.returnsTodayCount || 0}</h3><small>${dashboard.returnsFutureCount || 0} a venir ensuite</small></div>
-          <div class="kpi kpi-red"><p>Alertes ouvertes</p><h3>${dashboard.incidents.length + dashboard.late.length}</h3></div>
+          <div class="kpi kpi-red"><p>Alertes ouvertes</p><h3>${dashboard.openAlertCount || 0}</h3><small>${dashboard.stockAlerts.length || 0} stock negatif · ${(dashboard.incidents.length || 0) + (dashboard.late.length || 0)} incidents / retards</small></div>
         </div>
         <div class="grid-2">
           <div class="panel">
@@ -640,6 +640,12 @@
       <section class="panel">
         <div class="panel-title"><h2>Controle qualite</h2></div>
         <form id="return-form" onsubmit="event.preventDefault(); submitReturn();">
+          <div class="form-grid" style="margin-bottom:16px;">
+            <div class="field">
+              <label>Date reelle de retour</label>
+              <input id="drive-return-date" type="date" value="${escapeHtml(transaction.return_date || '')}" required>
+            </div>
+          </div>
           ${contract.items.map(item => `
             <div class="panel inset-panel" data-return-row="${item.product_id}" data-rented-qty="${item.quantity}">
               <h3>${escapeHtml(item.product_label_snapshot)} · Qté louee ${item.quantity}</h3>
@@ -1283,26 +1289,15 @@
       return;
     }
     setStatus('Creation du contrat en cours...');
-    const printWindow = window.open('', '_blank', 'noopener');
-    if (printWindow) {
-      printWindow.document.write('<title>Preparation du contrat...</title><p style="font-family:sans-serif;padding:24px;">Preparation du contrat en cours...</p>');
-    }
     try {
       state.currentContract = await runServer('apiCreateContract', payload);
       if (state.currentContract && state.currentContract.transaction && state.currentContract.transaction.generated_contract_url) {
-        if (printWindow && !printWindow.closed) {
-          printWindow.location.href = state.currentContract.transaction.generated_contract_url;
-        } else {
-          window.open(state.currentContract.transaction.generated_contract_url, '_blank', 'noopener');
-        }
+        window.open(state.currentContract.transaction.generated_contract_url, '_blank', 'noopener');
       }
       render();
       refreshDashboard(false).catch(error => setStatus(error.message));
       setStatus('Contrat cree: ' + state.currentContract.transaction.contract_number);
     } catch (error) {
-      if (printWindow && !printWindow.closed) {
-        printWindow.close();
-      }
       setStatus(error.message);
     }
   }
@@ -1356,27 +1351,16 @@
       force_stock_override_name: overrideName
     });
     setStatus('Creation forcee du contrat en cours...');
-    const printWindow = window.open('', '_blank', 'noopener');
-    if (printWindow) {
-      printWindow.document.write('<title>Preparation du contrat...</title><p style="font-family:sans-serif;padding:24px;">Preparation du contrat en cours...</p>');
-    }
     try {
       state.currentContract = await runServer('apiCreateContract', payload);
       if (state.currentContract && state.currentContract.transaction && state.currentContract.transaction.generated_contract_url) {
-        if (printWindow && !printWindow.closed) {
-          printWindow.location.href = state.currentContract.transaction.generated_contract_url;
-        } else {
-          window.open(state.currentContract.transaction.generated_contract_url, '_blank', 'noopener');
-        }
+        window.open(state.currentContract.transaction.generated_contract_url, '_blank', 'noopener');
       }
       state.forceOverrideDraft = null;
       render();
       refreshDashboard(false).catch(error => setStatus(error.message));
       setStatus('Contrat force cree.');
     } catch (error) {
-      if (printWindow && !printWindow.closed) {
-        printWindow.close();
-      }
       setStatus(error.message);
     }
   }
@@ -1545,6 +1529,12 @@
     if (!state.driveReturnContract) {
       return;
     }
+    const actualReturnDateInput = document.getElementById('drive-return-date');
+    const actualReturnDate = actualReturnDateInput ? actualReturnDateInput.value : '';
+    if (!actualReturnDate) {
+      setStatus('La date reelle de retour est requise.');
+      return;
+    }
     if (!validateReturnForm()) {
       setStatus('Les quantites de retour ne correspondent pas.');
       return;
@@ -1568,6 +1558,7 @@
     try {
       state.driveReturnContract = await runServer('apiRecordReturn', {
         transaction_id: state.driveReturnContract.transaction.id,
+        actual_return_date: actualReturnDate,
         items: Object.values(productGroups)
       });
       await reloadToDashboard('Retour enregistre.');

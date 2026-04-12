@@ -83,7 +83,12 @@ var RacsorContractService = (function () {
 
   function getDashboardData() {
     var today = RacsorUtils.toDateOnlyString(new Date());
-    var transactions = RacsorRepository.getAll(RacsorConfig.SHEETS.TRANSACTIONS);
+    var transactions = RacsorRepository.getAll(RacsorConfig.SHEETS.TRANSACTIONS).map(function (item) {
+      var cloned = JSON.parse(JSON.stringify(item));
+      cloned.pickup_date = item.pickup_date ? RacsorUtils.toDateOnlyString(item.pickup_date) : '';
+      cloned.return_date = item.return_date ? RacsorUtils.toDateOnlyString(item.return_date) : '';
+      return cloned;
+    });
     var user = getCurrentUserRole();
     var stockSnapshot = RacsorStockService.getStockSnapshot(today);
     var pickupContracts = transactions.filter(function (item) {
@@ -104,6 +109,21 @@ var RacsorContractService = (function () {
     var returnsFuture = returnContracts.filter(function (item) {
       return item.return_date > today;
     });
+    var stockAlerts = stockSnapshot.filter(function (item) {
+      return item.available < 0;
+    }).map(function (item) {
+      return {
+        product_id: item.product_id,
+        product_name: item.product_name,
+        available: item.available
+      };
+    });
+    var incidents = transactions.filter(function (item) {
+      return item.status === 'incident';
+    }).slice(0, 10);
+    var late = transactions.filter(function (item) {
+      return item.status === 'late';
+    }).slice(0, 10);
     return {
       today: today,
       stock: stockSnapshot,
@@ -113,21 +133,10 @@ var RacsorContractService = (function () {
       returnsTodayCount: returnsToday.length,
       pickupsFutureCount: pickupsFuture.length,
       returnsFutureCount: returnsFuture.length,
-      incidents: transactions.filter(function (item) {
-        return item.status === 'incident';
-      }).slice(0, 10),
-      late: transactions.filter(function (item) {
-        return item.status === 'late';
-      }).slice(0, 10),
-      stockAlerts: stockSnapshot.filter(function (item) {
-        return item.available < 0;
-      }).map(function (item) {
-        return {
-          product_id: item.product_id,
-          product_name: item.product_name,
-          available: item.available
-        };
-      }),
+      incidents: incidents,
+      late: late,
+      stockAlerts: stockAlerts,
+      openAlertCount: incidents.length + late.length + stockAlerts.length,
       recentContracts: transactions.filter(function (item) {
         return item.status !== 'closed';
       }).slice().sort(function (a, b) {
@@ -449,6 +458,7 @@ var RacsorContractService = (function () {
 
   function recordReturn(payload) {
     var data = getContractById(payload.transaction_id);
+    var actualReturnDate = payload.actual_return_date ? RacsorUtils.toDateOnlyString(payload.actual_return_date) : data.transaction.return_date;
     var itemMap = {};
     data.items.forEach(function (item) {
       itemMap[item.product_id] = item;
@@ -489,9 +499,10 @@ var RacsorContractService = (function () {
       });
     });
 
-    RacsorStockService.applyStockIn(stockRows, data.transaction.return_date);
+    RacsorStockService.applyStockIn(stockRows, actualReturnDate);
     RacsorRepository.updateById(RacsorConfig.SHEETS.TRANSACTIONS, 'id', payload.transaction_id, {
       status: hasIncident ? 'incident' : 'returned',
+      return_date: actualReturnDate,
       return_details_json: JSON.stringify(rows),
       updated_at: RacsorUtils.nowIso()
     });
