@@ -114,7 +114,9 @@ var RacsorContractService = (function () {
     var customerSlug = RacsorUtils.slugifyName(payload.client_last_name || 'CLIENT');
     var folderName = contractNumber + '_' + customerSlug;
     var quote = RacsorPricingService.computeQuote(payload);
-    RacsorStockService.assertAvailabilityOrThrow(quote.items, payload.pickup_date, payload.return_date);
+    if (!payload.force_stock_override) {
+      RacsorStockService.assertAvailabilityOrThrow(quote.items, payload.pickup_date, payload.return_date);
+    }
     var folder = RacsorDriveService.ensureContractFolder(folderName);
     var userContext = getCurrentUserRole();
     var transactionId = RacsorUtils.createId('TRX');
@@ -167,7 +169,9 @@ var RacsorContractService = (function () {
 
     RacsorLogService.log('CREATE_CONTRACT', 'transaction', transactionId, {
       contract_number: contractNumber,
-      amount: quote.total_amount_ttc
+      amount: quote.total_amount_ttc,
+      forced_stock_override: Boolean(payload.force_stock_override),
+      forced_by: payload.force_stock_override_name || ''
     });
 
     return getContractById(transactionId);

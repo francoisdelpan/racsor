@@ -22,7 +22,8 @@
     loadingCount: 0,
     viewLoadToken: 0,
     adminSection: 'products',
-    adminDataLoaded: false
+    adminDataLoaded: false,
+    forceOverrideDraft: null
   };
 
   function runServer(fnName, ...args) {
@@ -78,10 +79,27 @@
     if (el) {
       el.textContent = message;
     }
-    showSnackbar(message);
+    showToast(message, getToastType(message));
   }
 
-  function showSnackbar(message) {
+  function getToastType(message) {
+    const text = String(message || '').toLowerCase();
+    if (!text) {
+      return 'info';
+    }
+    if (text.indexOf('erreur') !== -1 || text.indexOf('introuvable') !== -1 || text.indexOf('insuffisant') !== -1 || text.indexOf('invalide') !== -1 || text.indexOf('impossible') !== -1) {
+      return 'error';
+    }
+    if (text.indexOf('chargement') !== -1 || text.indexOf('rafraichissement') !== -1 || text.indexOf('creation') !== -1 || text.indexOf('validation') !== -1 || text.indexOf('televersement') !== -1) {
+      return 'loading';
+    }
+    if (text.indexOf('enregistre') !== -1 || text.indexOf('charge') !== -1 || text.indexOf('cloture') !== -1 || text.indexOf('pret') !== -1 || text.indexOf('confirme') !== -1 || text.indexOf('ajoute') !== -1 || text.indexOf('mis a jour') !== -1) {
+      return 'success';
+    }
+    return 'info';
+  }
+
+  function showToast(message, type = 'info') {
     if (!message) {
       return;
     }
@@ -89,11 +107,32 @@
     if (!root) {
       return;
     }
-    root.innerHTML = `<div class="snackbar is-visible">${escapeHtml(message)}</div>`;
-    window.clearTimeout(showSnackbar.timeoutId);
-    showSnackbar.timeoutId = window.setTimeout(() => {
-      root.innerHTML = '';
-    }, 3200);
+    const toastId = `toast_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const icon = type === 'error' ? '!' : type === 'success' ? '✓' : type === 'loading' ? '…' : 'i';
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.id = toastId;
+    toast.innerHTML = `
+      <div class="toast-icon">${escapeHtml(icon)}</div>
+      <div class="toast-body">${escapeHtml(message)}</div>
+    `;
+    root.appendChild(toast);
+    requestAnimationFrame(() => {
+      toast.classList.add('is-visible');
+    });
+    const timeout = type === 'loading' ? 2200 : type === 'error' ? 4200 : 3200;
+    window.setTimeout(() => {
+      const current = document.getElementById(toastId);
+      if (!current) {
+        return;
+      }
+      current.classList.remove('is-visible');
+      window.setTimeout(() => {
+        if (current.parentNode) {
+          current.parentNode.removeChild(current);
+        }
+      }, 180);
+    }, timeout);
   }
 
   function formatCurrency(value) {
@@ -121,12 +160,25 @@
       weekday: withWeekday ? 'short' : undefined,
       day: '2-digit',
       month: '2-digit',
-      year: '2-digit'
+      year: 'numeric'
     }).format(date);
   }
 
   function render() {
     const app = document.getElementById('app');
+    if (!state.bootstrap || !state.bootstrap.user) {
+      app.innerHTML = `
+        <div class="shell">
+          <main class="content">
+            <div class="panel">
+              <h2>Chargement...</h2>
+              <p class="muted">Initialisation de l'application.</p>
+            </div>
+          </main>
+        </div>
+      `;
+      return;
+    }
     const user = state.bootstrap.user;
     const logo = state.bootstrap.settings.logoUrl
       ? `<img class="brand-logo-image" src="${escapeHtml(state.bootstrap.settings.logoUrl)}" alt="Logo Carrefour">`
@@ -163,9 +215,9 @@
           </main>
         </div>
       </div>
+      ${state.forceOverrideDraft ? renderForceContractModal() : ''}
     `;
     if (state.currentView === 'new-contract') {
-      ensureContractItems();
       hydratePeriodAvailabilityUi();
     }
     if (state.currentView === 'drive-return' && state.driveReturnContract) {
@@ -372,9 +424,8 @@
             <div class="field"><label>Heure retour</label><input name="return_hour" type="time" value="09:00" required></div>
             <div class="field field-full">
               <label>Produits</label>
-              <div id="contract-items"></div>
+              <div id="contract-items">${renderContractProductsTable()}</div>
               <div class="button-row">
-                <button type="button" class="button button-secondary" onclick="addContractItemRow()">Ajouter un produit</button>
                 <button type="button" class="button button-secondary" onclick="previewQuote()">Previsualiser le montant</button>
               </div>
             </div>
@@ -384,6 +435,7 @@
           </div>
           <div class="button-row" style="margin-top:16px;">
             <button type="submit" class="button button-primary" ${datesSelected ? '' : 'disabled'}>Creer le contrat</button>
+            <button type="button" class="button button-danger" onclick="openForceContractModal()" ${datesSelected ? '' : 'disabled'}>Forcer le contrat</button>
           </div>
         </form>
       </section>
@@ -424,6 +476,52 @@
           `).join('')}
         </tbody>
       </table>
+    `;
+  }
+
+  function renderContractProductsTable() {
+    const datesSelected = hasContractDatesSelected();
+    const availabilityByProduct = Object.fromEntries((state.periodAvailability || []).map(item => [item.product_id, Number(item.available || 0)]));
+    return `
+      <table class="admin-table">
+        <thead><tr><th>Produit</th><th>Stock disponible</th><th>Quantite</th></tr></thead>
+        <tbody>
+          ${state.bootstrap.referenceData.products.map(item => {
+            const available = datesSelected ? Number(availabilityByProduct[item.id] || 0) : '';
+            return `
+              <tr>
+                <td>${escapeHtml(item.name)}</td>
+                <td><input class="stock-inline-input" type="number" value="${available}" disabled placeholder="-"></td>
+                <td><input data-contract-product="${item.id}" type="number" min="0" ${datesSelected ? `max="${available}"` : 'disabled'} value="0" oninput="clampContractQuantity('${item.id}')"></td>
+              </tr>
+            `;
+          }).join('')}
+        </tbody>
+      </table>
+    `;
+  }
+
+  function renderForceContractModal() {
+    const draft = state.forceOverrideDraft;
+    return `
+      <div class="modal-backdrop" onclick="closeForceContractModal()">
+        <div class="modal-card" onclick="event.stopPropagation()">
+          <div class="panel-title"><h3>Forcer le contrat</h3></div>
+          <p class="muted">Le stock disponible est insuffisant. Le contrat sera cree en forcage et pourra faire passer le stock en negatif.</p>
+          <div class="field">
+            <label>Nom de la personne qui force</label>
+            <input id="force-override-name" value="${escapeHtml(draft.overrideName || '')}" placeholder="Nom / Prenom">
+          </div>
+          <div class="field" style="margin-top:12px;">
+            <label>Quantites forcees</label>
+            <div class="quote-box">${draft.lines.map(line => `${escapeHtml(line.product_name)} : ${line.requested} demande(s) / ${line.available} dispo`).join('<br>')}</div>
+          </div>
+          <div class="button-row" style="margin-top:16px;">
+            <button class="button button-danger" onclick="confirmForceContract()">Confirmer le forçage</button>
+            <button class="button button-secondary" onclick="closeForceContractModal()">Annuler</button>
+          </div>
+        </div>
+      </div>
     `;
   }
 
@@ -693,7 +791,7 @@
           <tbody>
             ${state.stockMatrix.rows.map(row => `
               <tr>
-                <td class="${row.is_monday ? 'is-monday' : ''} ${row.is_first_of_month ? 'is-month-start' : ''}">${escapeHtml(formatDateShort(row.date, true))}</td>
+                <td class="${row.is_monday ? 'is-monday' : ''} ${row.is_first_of_month ? 'is-month-start' : ''}">${escapeHtml(row.date)}</td>
                 ${visibleProducts.map(product => `<td>${row.products[product.product_id]}</td>`).join('')}
               </tr>
             `).join('')}
@@ -778,13 +876,14 @@
   }
 
   function renderAdminUsersSection(ref) {
+    const users = ref.users || [];
     return `
       <div class="panel inset-panel">
         <div class="panel-title"><h3>Utilisateurs</h3></div>
         <table class="admin-table">
           <thead><tr><th>Email</th><th>Role</th><th>Alertes</th><th>Actif</th><th></th></tr></thead>
           <tbody>
-            ${ref.users.map(item => `
+            ${users.map(item => `
               <tr>
                 <td>${escapeHtml(item.email)}</td>
                 <td>
@@ -978,30 +1077,6 @@
     return Boolean(form.pickup_date.value && form.return_date.value);
   }
 
-  function ensureContractItems() {
-    const container = document.getElementById('contract-items');
-    if (!container || container.children.length) {
-      return;
-    }
-    addContractItemRow();
-  }
-
-  function addContractItemRow() {
-    const container = document.getElementById('contract-items');
-    const products = state.bootstrap.referenceData.products;
-    const disabled = hasContractDatesSelected() ? '' : 'disabled';
-    const row = document.createElement('div');
-    row.className = 'item-row';
-    row.innerHTML = `
-      <select>
-        ${products.map(item => `<option value="${item.id}">${escapeHtml(item.name)}</option>`).join('')}
-      </select>
-      <input type="number" min="1" value="1" ${disabled}>
-      <button type="button" class="button button-secondary" onclick="this.parentNode.remove()">Supprimer</button>
-    `;
-    container.appendChild(row);
-  }
-
   function collectContractPayload() {
     const form = document.getElementById('contract-form');
     return {
@@ -1015,9 +1090,9 @@
       pickup_hour: form.pickup_hour.value,
       return_date: form.return_date.value,
       return_hour: form.return_hour.value,
-      items: Array.from(document.querySelectorAll('#contract-items .item-row')).map(row => ({
-        product_id: row.querySelector('select').value,
-        quantity: Number(row.querySelector('input').value || 0)
+      items: Array.from(document.querySelectorAll('[data-contract-product]')).map(input => ({
+        product_id: input.dataset.contractProduct,
+        quantity: Number(input.value || 0)
       })).filter(item => item.quantity > 0)
     };
   }
@@ -1047,12 +1122,27 @@
   }
 
   function hydratePeriodAvailabilityUi() {
-    document.querySelectorAll('#contract-items .item-row input[type="number"]').forEach(input => {
-      input.disabled = !hasContractDatesSelected();
-    });
+    const container = document.getElementById('contract-items');
+    if (container) {
+      container.innerHTML = renderContractProductsTable();
+    }
     const submitButton = document.querySelector('#contract-form button[type="submit"]');
     if (submitButton) {
       submitButton.disabled = !hasContractDatesSelected();
+    }
+  }
+
+  function clampContractQuantity(productId) {
+    const input = document.querySelector(`[data-contract-product="${productId}"]`);
+    const availableMap = Object.fromEntries((state.periodAvailability || []).map(item => [item.product_id, Number(item.available || 0)]));
+    if (!input || !hasContractDatesSelected()) {
+      return;
+    }
+    const max = Number(availableMap[productId] || 0);
+    const value = Number(input.value || 0);
+    if (value > max) {
+      input.value = max;
+      setStatus(`Quantite ajustee au stock disponible pour ${findProductName(productId)}.`);
     }
   }
 
@@ -1160,6 +1250,66 @@
       state.bootstrap.dashboard = await runServer('apiGetDashboardData');
       render();
       setStatus('Contrat cree: ' + state.currentContract.transaction.contract_number);
+    } catch (error) {
+      setStatus(error.message);
+    }
+  }
+
+  function openForceContractModal() {
+    const payload = collectContractPayload();
+    if (!payload.pickup_date || !payload.return_date) {
+      setStatus('Selectionne les dates avant de forcer le contrat.');
+      return;
+    }
+    if (!payload.items.length) {
+      setStatus('Aucun produit selectionne.');
+      return;
+    }
+    ensureAvailabilityReady_(payload.pickup_date, payload.return_date).then(availabilityByProduct => {
+      const lines = payload.items.map(item => ({
+        product_id: item.product_id,
+        product_name: findProductName(item.product_id),
+        requested: Number(item.quantity || 0),
+        available: Number(availabilityByProduct[item.product_id] || 0)
+      })).filter(item => item.requested > item.available);
+      if (!lines.length) {
+        setStatus('Le stock est suffisant. Utilise la creation normale.');
+        return;
+      }
+      state.forceOverrideDraft = {
+        payload: payload,
+        lines: lines,
+        overrideName: ''
+      };
+      render();
+    }).catch(error => setStatus(error.message));
+  }
+
+  function closeForceContractModal() {
+    state.forceOverrideDraft = null;
+    render();
+  }
+
+  async function confirmForceContract() {
+    if (!state.forceOverrideDraft) {
+      return;
+    }
+    const overrideName = document.getElementById('force-override-name').value.trim();
+    if (!overrideName) {
+      setStatus('Le nom de la personne qui force est requis.');
+      return;
+    }
+    const payload = Object.assign({}, state.forceOverrideDraft.payload, {
+      force_stock_override: true,
+      force_stock_override_name: overrideName
+    });
+    setStatus('Creation forcee du contrat en cours...');
+    try {
+      state.currentContract = await runServer('apiCreateContract', payload);
+      state.forceOverrideDraft = null;
+      state.bootstrap.dashboard = await runServer('apiGetDashboardData');
+      render();
+      setStatus('Contrat force cree.');
     } catch (error) {
       setStatus(error.message);
     }

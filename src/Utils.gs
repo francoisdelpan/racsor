@@ -8,6 +8,16 @@ var RacsorUtils = (function () {
     return Utilities.formatDate(date, Session.getScriptTimeZone(), 'yyyy-MM-dd');
   }
 
+  function toDisplayDate(value) {
+    var date = value instanceof Date ? value : new Date(value);
+    return Utilities.formatDate(date, Session.getScriptTimeZone(), 'dd/MM/yyyy');
+  }
+
+  function toContractDate(value) {
+    var date = value instanceof Date ? value : new Date(value);
+    return Utilities.formatDate(date, Session.getScriptTimeZone(), 'dd-MM-yyyy');
+  }
+
   function parseDate(value) {
     if (value instanceof Date) {
       return new Date(value.getFullYear(), value.getMonth(), value.getDate());
@@ -125,6 +135,8 @@ var RacsorUtils = (function () {
     nowIso: nowIso,
     parseDate: parseDate,
     toDateOnlyString: toDateOnlyString,
+    toDisplayDate: toDisplayDate,
+    toContractDate: toContractDate,
     diffDays: diffDays,
     inclusiveDays: inclusiveDays,
     enumerateDateStrings: enumerateDateStrings,

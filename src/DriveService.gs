@@ -44,9 +44,9 @@ var RacsorDriveService = (function () {
       body.replaceText('{{CLIENT_EMAIL}}', transaction.client_email || '');
       body.replaceText('{{CLIENT_ADDRESS}}', transaction.client_address || '');
       body.replaceText('{{CLIENT_ZIPCITY}}', transaction.client_zipcity || '');
-      body.replaceText('{{PICKUP_DATE}}', transaction.pickup_date);
+      body.replaceText('{{PICKUP_DATE}}', RacsorUtils.toContractDate(transaction.pickup_date));
       body.replaceText('{{PICKUP_HOUR}}', transaction.pickup_hour || '');
-      body.replaceText('{{RETURN_DATE}}', transaction.return_date);
+      body.replaceText('{{RETURN_DATE}}', RacsorUtils.toContractDate(transaction.return_date));
       body.replaceText('{{RETURN_HOUR}}', transaction.return_hour || '');
       body.replaceText('{{TOTAL_AMOUNT_TTC}}', String(transaction.total_amount_ttc) + ' €');
       body.replaceText('{{TOTAL}}', String(transaction.total_amount_ttc) + ' €');
@@ -63,8 +63,8 @@ var RacsorDriveService = (function () {
       'Email: ' + (transaction.client_email || ''),
       'Adresse: ' + (transaction.client_address || ''),
       'Code postal / Ville: ' + (transaction.client_zipcity || ''),
-      'Retrait: ' + transaction.pickup_date + ' ' + (transaction.pickup_hour || ''),
-      'Retour: ' + transaction.return_date + ' ' + (transaction.return_hour || ''),
+      'Retrait: ' + RacsorUtils.toContractDate(transaction.pickup_date) + ' ' + (transaction.pickup_hour || ''),
+      'Retour: ' + RacsorUtils.toContractDate(transaction.return_date) + ' ' + (transaction.return_hour || ''),
       '',
       'Produits:',
       buildItemLines_(items),
@@ -136,8 +136,8 @@ var RacsorDriveService = (function () {
       'Contrat: ' + (transaction.contract_number || ''),
       'Client: ' + (transaction.client_full_name || ''),
       'Statut: ' + (transaction.status || ''),
-      'Retrait: ' + (transaction.pickup_date || '') + ' ' + (transaction.pickup_hour || ''),
-      'Retour: ' + (transaction.return_date || '') + ' ' + (transaction.return_hour || ''),
+      'Retrait: ' + (transaction.pickup_date ? RacsorUtils.toContractDate(transaction.pickup_date) : '') + ' ' + (transaction.pickup_hour || ''),
+      'Retour: ' + (transaction.return_date ? RacsorUtils.toContractDate(transaction.return_date) : '') + ' ' + (transaction.return_hour || ''),
       'Montant TTC: ' + (transaction.total_amount_ttc || 0) + ' EUR',
       'Caution: ' + (transaction.total_deposit_amount || 0) + ' EUR',
       ''

@@ -393,27 +393,64 @@
     position: fixed;
     top: 18px;
     right: 18px;
-    z-index: 20;
+    z-index: 30;
     pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    align-items: flex-end;
   }
 
-  .snackbar {
+  .toast {
     display: flex;
     align-items: center;
+    gap: 12px;
     width: min(420px, calc(100vw - 36px));
     padding: 14px 16px;
     border-radius: 14px;
     color: #fff;
     background: rgba(16, 35, 58, 0.98);
     box-shadow: var(--shadow-card);
-    transform: translateY(-8px);
+    transform: translateY(-8px) scale(0.98);
     opacity: 0;
     transition: opacity 160ms ease, transform 160ms ease;
   }
 
-  .snackbar.is-visible {
-    transform: translateY(0);
+  .toast.is-visible {
+    transform: translateY(0) scale(1);
     opacity: 1;
+  }
+
+  .toast-icon {
+    width: 22px;
+    height: 22px;
+    border-radius: 999px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 800;
+    background: rgba(255, 255, 255, 0.14);
+    flex: 0 0 auto;
+  }
+
+  .toast-body {
+    line-height: 1.35;
+  }
+
+  .toast-success {
+    background: linear-gradient(135deg, #2f7f59, #3d9b71);
+  }
+
+  .toast-error {
+    background: linear-gradient(135deg, #b63a2d, #cf5648);
+  }
+
+  .toast-info {
+    background: linear-gradient(135deg, #234f7f, #35689f);
+  }
+
+  .toast-loading {
+    background: linear-gradient(135deg, #495769, #667689);
   }
 
   .product-toggle-list {
@@ -489,6 +526,30 @@
 
   .admin-creation-panel {
     margin-top: 18px;
+  }
+
+  .stock-inline-input {
+    background: #eef2f7;
+    color: #6f7b8b;
+  }
+
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(16, 35, 58, 0.38);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 40;
+    padding: 24px;
+  }
+
+  .modal-card {
+    width: min(560px, 100%);
+    background: #fff;
+    border-radius: var(--radius-lg);
+    box-shadow: 0 24px 60px rgba(16, 35, 58, 0.24);
+    padding: 22px;
   }
 
   .filter-dropdown summary {
