@@ -462,16 +462,36 @@ var RacsorContractService = (function () {
   function closeContract(payload) {
     var transactionId = typeof payload === 'string' ? payload : payload.transaction_id;
     var closePayload = typeof payload === 'string' ? {} : (payload || {});
-    var ticketFile = null;
-    if (closePayload.ticket_file && closePayload.ticket_file.base64) {
-      var contractData = getContractById(transactionId);
-      ticketFile = RacsorDriveService.saveDocumentToContractFolder(contractData.transaction, closePayload.ticket_file);
+    var data = getContractById(transactionId);
+    if (data.transaction.status !== 'ready_to_close') {
+      throw new Error('Le dossier doit etre valide par le SAV avant cloture.');
     }
     RacsorRepository.updateById(RacsorConfig.SHEETS.TRANSACTIONS, 'id', transactionId, {
       status: 'closed',
       updated_at: RacsorUtils.nowIso()
     });
     RacsorLogService.log('CLOSE_CONTRACT', 'transaction', transactionId, {});
+    return getContractById(transactionId);
+  }
+
+  function finalizeSavReturn(payload) {
+    var transactionId = payload.transaction_id;
+    var closePayload = payload || {};
+    var data = getContractById(transactionId);
+    if (['returned', 'incident', 'late'].indexOf(data.transaction.status) === -1) {
+      throw new Error('Le dossier ne peut pas encore etre valide par le SAV.');
+    }
+    var ticketFile = null;
+    if (closePayload.ticket_file && closePayload.ticket_file.base64) {
+      ticketFile = RacsorDriveService.saveDocumentToContractFolder(data.transaction, closePayload.ticket_file);
+    }
+    RacsorRepository.updateById(RacsorConfig.SHEETS.TRANSACTIONS, 'id', transactionId, {
+      status: 'ready_to_close',
+      updated_at: RacsorUtils.nowIso()
+    });
+    RacsorLogService.log('FINALIZE_SAV_RETURN', 'transaction', transactionId, {
+      refund_amount: closePayload.refund_amount || 0
+    });
     var updatedContract = getContractById(transactionId);
     RacsorDriveService.saveFinalStateSummary(updatedContract.transaction, updatedContract.items, buildReturnSummaryRows_(updatedContract));
     RacsorDriveService.saveSavClosureSummary(updatedContract.transaction, {
@@ -504,6 +524,7 @@ var RacsorContractService = (function () {
     markPickedUp: markPickedUp,
     cancelContract: cancelContract,
     recordReturn: recordReturn,
+    finalizeSavReturn: finalizeSavReturn,
     closeContract: closeContract
   };
 })();

@@ -63,6 +63,10 @@ function apiCloseContract(payload) {
   return RacsorContractService.closeContract(payload);
 }
 
+function apiFinalizeSavReturn(payload) {
+  return RacsorContractService.finalizeSavReturn(payload);
+}
+
 function apiGetDashboardData() {
   return RacsorContractService.getDashboardData();
 }

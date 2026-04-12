@@ -1,43 +1,39 @@
 # LOCATION MATERIEL
 
-## WebApp en production
+## Lien WebApp
 
-Lien actuel :
-https://script.google.com/a/macros/franchise.carrefour.com/s/AKfycbzQ3NHBhik-HFnDr8fVveZK5ooJaYExAVf5ca7hUrgbLwqbyl7DOwKPPthC7WlfJRPb/exec
+[PRODUCTION](https://script.google.com/a/macros/franchise.carrefour.com/s/AKfycbzQ3NHBhik-HFnDr8fVveZK5ooJaYExAVf5ca7hUrgbLwqbyl7DOwKPPthC7WlfJRPb/exec)
+
+[DEVELOPPEMENT](https://script.google.com/a/macros/franchise.carrefour.com/s/AKfycbzQ3NHBhik-HFnDr8fVveZK5ooJaYExAVf5ca7hUrgbLwqbyl7DOwKPPthC7WlfJRPb/exec)
+
+[FAIRE UN TICKET](https://github.com/francoisdelpan/racsor/issues/new)
 
 ## A quoi sert cette application
 
 Cette WebApp permet de gérer la location de matériel :
 
-- création d’un contrat
+- création du contrat
 - génération du contrat à imprimer
 - téléversement du contrat signé
 - enlèvement du matériel
 - retour et contrôle qualité
-- décision SAV sur la caution
-- archivage du dossier dans Drive
+- traitement SAV de la caution
+- clôture et archivage du dossier
 
-L’application s’appuie sur :
-
-- une base Google Sheets
-- un dossier racine Google Drive
-- un template Google Docs pour le contrat
-- un agenda Google Calendar partagé
-
-## Parcours métier simple
+## Parcours métier par statut
 
 ### 1. `DRAFT`
 
 Le contrat vient d’être créé.
 
 - le stock est réservé
-- le dossier Drive du client est créé
+- le dossier Drive est créé
 - le contrat auto-généré est disponible
 - le contrat n’est pas encore signé
 
-Action attendue :
+Action :
 
-- imprimer le contrat
+- imprimer
 - faire signer
 - téléverser le contrat signé
 
@@ -45,44 +41,46 @@ Action attendue :
 
 Le contrat signé est disponible.
 
-- le dossier peut passer au Drive
-- le matériel peut être préparé puis retiré
+- le Drive peut préparer le dossier
+- le matériel peut être retiré
 
-Action attendue :
+Action :
 
-- le Drive confirme l’enlèvement
+- confirmer l’enlèvement
 
 ### 3. `PICKED_UP`
 
-Le matériel est parti.
+Le matériel est sorti.
 
-- le contrat est en cours de location
+- la location est en cours
 - le retour est attendu à la date prévue
 
-Action attendue :
+Action :
 
-- le Drive contrôle le retour
+- le Drive saisit le retour
 
 ### 4. `RETURNED`
 
 Le retour a été saisi sans anomalie.
 
-- le SAV peut traiter la caution
-- le dossier peut être clôturé
+Action :
+
+- le SAV traite la caution
 
 ### 5. `INCIDENT`
 
 Le retour a été saisi avec anomalie.
 
-- casse
-- manque
+Exemples :
+
 - matériel sale
 - matériel abîmé
+- matériel cassé
+- matériel manquant
 
-Action attendue :
+Action :
 
-- le SAV décide du remboursement de caution
-- le dossier est ensuite clôturé
+- le SAV traite la caution
 
 ### 6. `LATE`
 
@@ -91,12 +89,25 @@ Le retour attendu est dépassé.
 - le contrat reste visible dans les vues de suivi
 - une alerte peut être envoyée
 
-### 7. `CLOSED`
+### 7. `READY_TO_CLOSE`
 
-Le SAV a terminé le traitement.
+Le SAV a terminé son traitement.
 
-- le dossier disparaît du dashboard standard
-- le dossier reste consultable uniquement dans l’espace `Admin`
+- montant remboursé saisi
+- commentaire SAV enregistré
+- ticket de caisse éventuellement joint
+- le dossier est prêt à être clôturé
+
+Action :
+
+- clôture finale depuis le `Dashboard`
+
+### 8. `CLOSED`
+
+Le dossier est définitivement clôturé.
+
+- il disparaît du dashboard standard
+- il reste consultable uniquement dans l’espace `Admin`
 
 ## Menus de l’application
 
@@ -109,6 +120,7 @@ Permet de suivre :
 - les retours du jour
 - les alertes
 - les derniers contrats non clôturés
+- les dossiers `READY_TO_CLOSE` à clôturer
 
 ### Fiches de stock
 
@@ -147,13 +159,16 @@ Permet au SAV de :
 - saisir le remboursement de caution
 - ajouter un commentaire
 - joindre le ticket de caisse
-- clôturer le dossier
+- valider le traitement SAV
+
+La clôture finale du dossier se fait ensuite dans le `Dashboard`.
 
 ### Admin
 
 Permet à l’administrateur de :
 
 - gérer les produits
+- gérer les règles tarifaires
 - gérer les tarifs
 - gérer les utilisateurs
 - consulter les états de retour
@@ -164,11 +179,11 @@ Permet à l’administrateur de :
 Le projet Apps Script doit avoir accès à :
 
 - un Google Spreadsheet
-- un dossier racine Drive
+- un dossier racine Google Drive
 - un template Google Docs
 - un agenda Google Calendar
 
-Script Properties à renseigner si besoin :
+Script Properties possibles :
 
 - `RACSOR_SPREADSHEET_ID`
 - `RACSOR_DRIVE_ROOT_FOLDER_ID`
@@ -187,6 +202,7 @@ Cette fonction :
 - crée les onglets nécessaires
 - initialise les données de base
 - prépare la feuille de stock
+- ajoute les utilisateurs par défaut
 
 ### `seedDemoUsersIfMissing()`
 
@@ -199,9 +215,11 @@ Permet de marquer les retards et d’envoyer les alertes prévues.
 ## Points importants pour l’usage
 
 - le contrat signé doit être téléversé pour passer en `SIGNED`
-- un contrat `CLOSED` n’apparaît plus dans le dashboard standard
+- après traitement SAV, le dossier passe en `READY_TO_CLOSE`
+- la clôture finale se fait depuis le `Dashboard`
+- un dossier `CLOSED` n’apparaît plus dans le dashboard standard
 - le dossier client reste toujours dans Drive
-- le SAV génère aussi un récapitulatif de clôture dans le dossier client
+- le SAV génère un récapitulatif de clôture dans le dossier client
 
 ## Structure du projet
 
@@ -216,7 +234,3 @@ Permet de marquer les retards et d’envoyer les alertes prévues.
 - chaque ligne représente une date
 - chaque colonne représente un produit
 - Google Sheets sert de moteur de propagation des stocks
-
-## Contact projet
-
-En cas d’évolution métier, la référence de fonctionnement reste le process métier Carrefour validé dans ce dépôt.

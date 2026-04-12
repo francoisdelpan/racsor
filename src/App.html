@@ -338,6 +338,7 @@
                   ${item.drive_folder_url ? `<a class="button button-secondary" href="${escapeHtml(item.drive_folder_url)}" target="_blank">Dossier</a>` : ''}
                   ${item.status === 'draft' ? `<button class="button button-accent" onclick="triggerDashboardSignedUpload('${item.id}')">Televerser signe</button>` : ''}
                   ${item.status === 'draft' ? `<button class="button button-secondary" onclick="forceDashboardSigned('${item.id}')">Forcer SIGNED</button>` : ''}
+                  ${item.status === 'ready_to_close' ? `<button class="button button-primary" onclick="closeDashboardContract('${item.id}')">Cloturer</button>` : ''}
                   <button class="button button-secondary" onclick="triggerDashboardUpload('${item.id}')">Ajouter une piece</button>
                 </div>
               </td>
@@ -590,7 +591,7 @@
               <div class="field field-full"><label>Scan ticket de caisse</label><input id="sav-ticket-file" type="file" accept=\"image/*,.pdf\"></div>
             </div>
             <div class="inline-actions" style="margin-top:12px;">
-              <button class="button button-primary" onclick="closeSavContract()">Rendre la caution / cloturer</button>
+              <button class="button button-primary" onclick="closeSavContract()">Valider le retour SAV</button>
             </div>
           </div>
         </div>
@@ -781,14 +782,31 @@
       <div class="panel inset-panel">
         <div class="panel-title"><h3>Utilisateurs</h3></div>
         <table class="admin-table">
-          <thead><tr><th>Email</th><th>Role</th><th>Alertes</th><th>Actif</th></tr></thead>
+          <thead><tr><th>Email</th><th>Role</th><th>Alertes</th><th>Actif</th><th></th></tr></thead>
           <tbody>
             ${ref.users.map(item => `
               <tr>
                 <td>${escapeHtml(item.email)}</td>
-                <td>${escapeHtml(item.role)}</td>
-                <td>${escapeHtml(String(item.get_alert))}</td>
-                <td>${escapeHtml(String(item.is_active))}</td>
+                <td>
+                  <select data-admin-existing-user-role="${escapeHtml(item.email)}">
+                    <option value="RESP" ${item.role === 'RESP' ? 'selected' : ''}>RESP</option>
+                    <option value="SAV" ${item.role === 'SAV' ? 'selected' : ''}>SAV</option>
+                    <option value="DRIVE" ${item.role === 'DRIVE' ? 'selected' : ''}>DRIVE</option>
+                  </select>
+                </td>
+                <td>
+                  <select data-admin-existing-user-alert="${escapeHtml(item.email)}">
+                    <option value="true" ${String(item.get_alert) === 'true' ? 'selected' : ''}>Oui</option>
+                    <option value="false" ${String(item.get_alert) === 'true' ? '' : 'selected'}>Non</option>
+                  </select>
+                </td>
+                <td>
+                  <select data-admin-existing-user-active="${escapeHtml(item.email)}">
+                    <option value="true" ${String(item.is_active) === 'false' ? '' : 'selected'}>Oui</option>
+                    <option value="false" ${String(item.is_active) === 'false' ? 'selected' : ''}>Non</option>
+                  </select>
+                </td>
+                <td><button class="button button-secondary" onclick="saveExistingUserAdmin('${escapeHtml(item.email)}')">Sauver</button></td>
               </tr>
             `).join('')}
           </tbody>
@@ -926,7 +944,7 @@
       await loadContractsForView('driveReturnContracts', ['picked_up', 'late', 'incident'], token);
     }
     if (view === 'sav-return') {
-      await loadContractsForView('savReturnContracts', ['returned', 'incident'], token);
+      await loadContractsForView('savReturnContracts', ['returned', 'incident', 'late'], token);
     }
     if (view === 'admin' && !state.adminDataLoaded) {
       await loadAdminData();
@@ -1160,12 +1178,7 @@
         mimeType: file.type,
         base64
       });
-      await refreshAllData();
-      state.currentContract = null;
-      state.periodAvailability = [];
-      state.currentView = 'dashboard';
-      render();
-      setStatus('Contrat signe enregistre.');
+      await reloadToDashboard('Contrat signe enregistre.');
     } catch (error) {
       setStatus(error.message);
     }
@@ -1227,8 +1240,7 @@
         mimeType: file.type,
         base64
       });
-      await refreshDashboard(true);
-      setStatus('Contrat signe enregistre depuis le dashboard.');
+      await reloadToDashboard('Contrat signe enregistre depuis le dashboard.');
     } catch (error) {
       setStatus(error.message);
     } finally {
@@ -1241,8 +1253,7 @@
     setStatus('Passage du contrat en SIGNED...');
     try {
       await runServer('apiForceContractSigned', transactionId);
-      await refreshDashboard(true);
-      setStatus('Contrat passe en SIGNED.');
+      await reloadToDashboard('Contrat passe en SIGNED.');
     } catch (error) {
       setStatus(error.message);
     }
@@ -1308,11 +1319,7 @@
     setStatus('Validation du retrait...');
     try {
       state.pickupContract = await runServer('apiMarkPickedUp', state.pickupContract.transaction.id);
-      await refreshAllData();
-      state.pickupContract = null;
-      state.currentView = 'dashboard';
-      render();
-      setStatus('Depart des marchandises confirme.');
+      await reloadToDashboard('Depart des marchandises confirme.');
     } catch (error) {
       setStatus(error.message);
     }
@@ -1347,11 +1354,7 @@
         transaction_id: state.driveReturnContract.transaction.id,
         items: Object.values(productGroups)
       });
-      await refreshAllData();
-      state.driveReturnContract = null;
-      state.currentView = 'dashboard';
-      render();
-      setStatus('Retour enregistre.');
+      await reloadToDashboard('Retour enregistre.');
     } catch (error) {
       setStatus(error.message);
     }
@@ -1373,18 +1376,24 @@
           base64: await fileToBase64(ticketFile)
         };
       }
-      state.savReturnContract = await runServer('apiCloseContract', {
+      state.savReturnContract = await runServer('apiFinalizeSavReturn', {
         transaction_id: state.savReturnContract.transaction.id,
         refund_amount: parseNumeric(document.getElementById('sav-refund-amount').value),
         reason: document.getElementById('sav-close-reason').value.trim(),
         comment: document.getElementById('sav-close-comment').value.trim(),
         ticket_file: ticketPayload
       });
-      await refreshAllData();
-      state.savReturnContract = null;
-      state.currentView = 'dashboard';
-      render();
-      setStatus('Dossier clos.');
+      await reloadToDashboard('Retour SAV valide. Dossier pret a cloturer.');
+    } catch (error) {
+      setStatus(error.message);
+    }
+  }
+
+  async function closeDashboardContract(transactionId) {
+    setStatus('Cloture du dossier...');
+    try {
+      await runServer('apiCloseContract', { transaction_id: transactionId });
+      await reloadToDashboard('Dossier cloture.');
     } catch (error) {
       setStatus(error.message);
     }
@@ -1508,7 +1517,7 @@
         await loadContractsForView('driveReturnContracts', ['picked_up', 'late', 'incident']);
       }
       if (state.currentView === 'sav-return') {
-        await loadContractsForView('savReturnContracts', ['returned', 'incident']);
+        await loadContractsForView('savReturnContracts', ['returned', 'incident', 'late']);
       }
       if (state.currentView === 'stock' && state.stockMatrix) {
         await loadStockMatrix();
@@ -1517,6 +1526,19 @@
     } catch (error) {
       setStatus(error.message);
     }
+  }
+
+  async function reloadToDashboard(message) {
+    state.currentContract = null;
+    state.pickupContract = null;
+    state.driveReturnContract = null;
+    state.savReturnContract = null;
+    state.periodAvailability = [];
+    state.periodAvailabilityKey = '';
+    state.currentView = 'dashboard';
+    state.adminDataLoaded = false;
+    await boot();
+    setStatus(message);
   }
 
   async function ensureAvailabilityReady_(pickupDate, returnDate) {
@@ -1547,6 +1569,19 @@
     state.adminDataLoaded = true;
     render();
     setStatus('Utilisateur enregistre.');
+  }
+
+  async function saveExistingUserAdmin(email) {
+    const payload = {
+      email,
+      role: document.querySelector(`[data-admin-existing-user-role="${email}"]`).value,
+      get_alert: document.querySelector(`[data-admin-existing-user-alert="${email}"]`).value === 'true',
+      is_active: document.querySelector(`[data-admin-existing-user-active="${email}"]`).value === 'true'
+    };
+    state.bootstrap.referenceData = await runServer('apiUpsertUser', payload);
+    state.adminDataLoaded = true;
+    render();
+    setStatus('Utilisateur mis a jour.');
   }
 
   async function saveProductAdmin(productId) {
