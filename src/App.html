@@ -451,8 +451,8 @@
           </div>
           <div class="quote-box" id="quote-preview">${renderQuotePreview('', datesSelected)}</div>
           <div class="button-row" style="margin-top:16px;">
-            <button type="submit" class="button button-primary" ${datesSelected ? '' : 'disabled'}>Creer le contrat</button>
-            <button type="button" class="button button-danger" onclick="openForceContractModal()" ${datesSelected ? '' : 'disabled'}>Forcer le contrat</button>
+            <button id="create-contract-button" type="submit" class="button button-primary" ${datesSelected ? '' : 'disabled'}>Creer le contrat</button>
+            <button id="force-contract-button" type="button" class="button button-danger" onclick="openForceContractModal()" ${datesSelected ? '' : 'disabled'}>Forcer le contrat</button>
           </div>
         </form>
       </section>
@@ -495,7 +495,7 @@
     return `
       <div>${body}</div>
       <div class="button-row button-row-end" style="margin-top:12px;">
-        <button type="button" class="button button-secondary" onclick="previewQuote()" ${datesSelected ? '' : 'disabled'}>Previsualiser le montant</button>
+        <button id="preview-quote-button" type="button" class="button button-secondary" onclick="previewQuote()" ${datesSelected ? '' : 'disabled'}>Previsualiser le montant</button>
       </div>
     `;
   }
@@ -1147,9 +1147,27 @@
     if (container) {
       container.innerHTML = renderContractProductsTable();
     }
-    const submitButton = document.querySelector('#contract-form button[type="submit"]');
+    syncNewContractActionState();
+  }
+
+  function syncNewContractActionState() {
+    const datesSelected = hasContractDatesSelected();
+    const submitButton = document.getElementById('create-contract-button');
+    const forceButton = document.getElementById('force-contract-button');
+    const previewButton = document.getElementById('preview-quote-button');
     if (submitButton) {
-      submitButton.disabled = !hasContractDatesSelected();
+      submitButton.disabled = !datesSelected;
+    }
+    if (forceButton) {
+      forceButton.disabled = !datesSelected;
+    }
+    if (previewButton) {
+      previewButton.disabled = !datesSelected;
+    }
+    const quotePreview = document.getElementById('quote-preview');
+    if (quotePreview && quotePreview.dataset.mode !== 'preview') {
+      quotePreview.innerHTML = renderQuotePreview('', datesSelected);
+      quotePreview.dataset.mode = 'default';
     }
   }
 
@@ -1233,7 +1251,8 @@
         amount += isWeekend ? Number(price.unit_price_ttc || 0) * item.quantity : Number(price.unit_price_ttc || 0) * item.quantity * days;
       }
     });
-    document.getElementById('quote-preview').innerHTML = renderQuotePreview(`
+    const quotePreview = document.getElementById('quote-preview');
+    quotePreview.innerHTML = renderQuotePreview(`
       <strong>Controle rapide</strong><br>
       Regle pressentie: ${isWeekend ? 'week-end' : days <= 4 ? '1 a 4 jours' : days <= 10 ? '5 a 10 jours' : 'invalide'}<br>
       Duree calculee: ${days} jour(s)<br>
@@ -1241,6 +1260,7 @@
       Caution estimee: ${formatCurrency(deposit)}<br>
       Le montant final sera valide cote serveur.
     `, true);
+    quotePreview.dataset.mode = 'preview';
   }
 
   async function submitContractForm() {
@@ -1263,15 +1283,26 @@
       return;
     }
     setStatus('Creation du contrat en cours...');
+    const printWindow = window.open('', '_blank', 'noopener');
+    if (printWindow) {
+      printWindow.document.write('<title>Preparation du contrat...</title><p style="font-family:sans-serif;padding:24px;">Preparation du contrat en cours...</p>');
+    }
     try {
       state.currentContract = await runServer('apiCreateContract', payload);
       if (state.currentContract && state.currentContract.transaction && state.currentContract.transaction.generated_contract_url) {
-        window.open(state.currentContract.transaction.generated_contract_url, '_blank', 'noopener');
+        if (printWindow && !printWindow.closed) {
+          printWindow.location.href = state.currentContract.transaction.generated_contract_url;
+        } else {
+          window.open(state.currentContract.transaction.generated_contract_url, '_blank', 'noopener');
+        }
       }
       render();
       refreshDashboard(false).catch(error => setStatus(error.message));
       setStatus('Contrat cree: ' + state.currentContract.transaction.contract_number);
     } catch (error) {
+      if (printWindow && !printWindow.closed) {
+        printWindow.close();
+      }
       setStatus(error.message);
     }
   }
@@ -1325,16 +1356,27 @@
       force_stock_override_name: overrideName
     });
     setStatus('Creation forcee du contrat en cours...');
+    const printWindow = window.open('', '_blank', 'noopener');
+    if (printWindow) {
+      printWindow.document.write('<title>Preparation du contrat...</title><p style="font-family:sans-serif;padding:24px;">Preparation du contrat en cours...</p>');
+    }
     try {
       state.currentContract = await runServer('apiCreateContract', payload);
       if (state.currentContract && state.currentContract.transaction && state.currentContract.transaction.generated_contract_url) {
-        window.open(state.currentContract.transaction.generated_contract_url, '_blank', 'noopener');
+        if (printWindow && !printWindow.closed) {
+          printWindow.location.href = state.currentContract.transaction.generated_contract_url;
+        } else {
+          window.open(state.currentContract.transaction.generated_contract_url, '_blank', 'noopener');
+        }
       }
       state.forceOverrideDraft = null;
       render();
       refreshDashboard(false).catch(error => setStatus(error.message));
       setStatus('Contrat force cree.');
     } catch (error) {
+      if (printWindow && !printWindow.closed) {
+        printWindow.close();
+      }
       setStatus(error.message);
     }
   }
