@@ -54,6 +54,37 @@
   async function boot() {
     setStatus('Chargement des donnees...');
     state.bootstrap = await runServer('getAppBootstrapData');
+    if (!state.bootstrap) {
+      state.bootstrap = {};
+    }
+    if (!state.bootstrap.user) {
+      state.bootstrap.user = { email: '', role: 'DRIVE' };
+    }
+    state.bootstrap.referenceData = Object.assign({
+      products: [],
+      pricingRules: [],
+      prices: [],
+      returnStates: [],
+      users: []
+    }, state.bootstrap.referenceData || {});
+    state.bootstrap.dashboard = Object.assign({
+      today: '',
+      stock: [],
+      pickups: [],
+      returns: [],
+      incidents: [],
+      late: [],
+      stockAlerts: [],
+      recentContracts: [],
+      closedContracts: [],
+      pickupsTodayCount: 0,
+      returnsTodayCount: 0,
+      pickupsFutureCount: 0,
+      returnsFutureCount: 0
+    }, state.bootstrap.dashboard || {});
+    if (!state.bootstrap.settings) {
+      state.bootstrap.settings = {};
+    }
     render();
     setStatus('Application prete.');
   }
@@ -162,6 +193,14 @@
       month: '2-digit',
       year: 'numeric'
     }).format(date);
+  }
+
+  function normalizePhoneDisplay(value) {
+    const digits = String(value || '').replace(/\D/g, '');
+    if (!digits) {
+      return '';
+    }
+    return digits.length === 9 ? `0${digits}` : String(value || '');
   }
 
   function render() {
@@ -284,7 +323,14 @@
   }
 
   function renderDashboardView() {
-    const dashboard = state.bootstrap.dashboard;
+    const dashboard = Object.assign({
+      stock: [],
+      returns: [],
+      late: [],
+      incidents: [],
+      stockAlerts: [],
+      recentContracts: []
+    }, state.bootstrap.dashboard || {});
     return `
       <section class="panel">
         <div class="panel-title">
@@ -383,7 +429,7 @@
             <tr>
               <td>${escapeHtml(item.contract_number)}</td>
               <td>${escapeHtml(item.client_full_name)}</td>
-              <td>${escapeHtml([item.client_phone, item.client_email].filter(Boolean).join(' / ') || '-')}</td>
+              <td>${escapeHtml([normalizePhoneDisplay(item.client_phone), item.client_email].filter(Boolean).join(' / ') || '-')}</td>
               <td><span class="tag tag-${escapeHtml(item.status)}">${escapeHtml(item.status)}</span></td>
               <td>
                 <div class="inline-actions">
@@ -425,28 +471,14 @@
             <div class="field field-full">
               <label>Produits</label>
               <div id="contract-items">${renderContractProductsTable()}</div>
-              <div class="button-row">
-                <button type="button" class="button button-secondary" onclick="previewQuote()">Previsualiser le montant</button>
-              </div>
             </div>
           </div>
-          <div class="quote-box" id="quote-preview">
-            ${datesSelected ? 'Selectionne les produits puis previsualise le montant.' : 'Selectionne d abord les dates pour afficher le stock theorique de la periode.'}
-          </div>
+          <div class="quote-box" id="quote-preview">${renderQuotePreview('', datesSelected)}</div>
           <div class="button-row" style="margin-top:16px;">
             <button type="submit" class="button button-primary" ${datesSelected ? '' : 'disabled'}>Creer le contrat</button>
             <button type="button" class="button button-danger" onclick="openForceContractModal()" ${datesSelected ? '' : 'disabled'}>Forcer le contrat</button>
           </div>
         </form>
-      </section>
-      <section class="panel">
-        <div class="panel-title">
-          <h2>Stock theorique sur la periode</h2>
-          <span class="muted">Stock disponible sur la plage choisie</span>
-        </div>
-        <div id="period-availability-panel">
-          ${renderPeriodAvailability()}
-        </div>
       </section>
       ${state.currentContract ? renderCurrentContractPanel() : ''}
     `;
@@ -479,6 +511,19 @@
     `;
   }
 
+  function renderQuotePreview(detailsHtml, datesSelectedOverride) {
+    const datesSelected = typeof datesSelectedOverride === 'boolean' ? datesSelectedOverride : hasContractDatesSelected();
+    const body = detailsHtml || (datesSelected
+      ? 'Selectionne les produits puis previsualise le montant.'
+      : 'Selectionne d abord les dates pour debloquer les quantites.');
+    return `
+      <div>${body}</div>
+      <div class="button-row button-row-end" style="margin-top:12px;">
+        <button type="button" class="button button-secondary" onclick="previewQuote()" ${datesSelected ? '' : 'disabled'}>Previsualiser le montant</button>
+      </div>
+    `;
+  }
+
   function renderContractProductsTable() {
     const datesSelected = hasContractDatesSelected();
     const availabilityByProduct = Object.fromEntries((state.periodAvailability || []).map(item => [item.product_id, Number(item.available || 0)]));
@@ -492,7 +537,7 @@
               <tr>
                 <td>${escapeHtml(item.name)}</td>
                 <td><input class="stock-inline-input" type="number" value="${available}" disabled placeholder="-"></td>
-                <td><input data-contract-product="${item.id}" type="number" min="0" ${datesSelected ? `max="${available}"` : 'disabled'} value="0" oninput="clampContractQuantity('${item.id}')"></td>
+                <td><input data-contract-product="${item.id}" type="number" min="0" ${datesSelected ? '' : 'disabled'} value="0" oninput="clampContractQuantity('${item.id}')"></td>
               </tr>
             `;
           }).join('')}
@@ -1140,10 +1185,7 @@
     }
     const max = Number(availableMap[productId] || 0);
     const value = Number(input.value || 0);
-    if (value > max) {
-      input.value = max;
-      setStatus(`Quantite ajustee au stock disponible pour ${findProductName(productId)}.`);
-    }
+    input.classList.toggle('input-invalid', value > max);
   }
 
   function initializeReturnForm() {
@@ -1191,10 +1233,6 @@
   }
 
   function updatePeriodAvailabilityUi() {
-    const panel = document.getElementById('period-availability-panel');
-    if (panel) {
-      panel.innerHTML = renderPeriodAvailability();
-    }
     hydratePeriodAvailabilityUi();
   }
 
@@ -1219,18 +1257,22 @@
         amount += isWeekend ? Number(price.unit_price_ttc || 0) * item.quantity : Number(price.unit_price_ttc || 0) * item.quantity * days;
       }
     });
-    document.getElementById('quote-preview').innerHTML = `
+    document.getElementById('quote-preview').innerHTML = renderQuotePreview(`
       <strong>Controle rapide</strong><br>
       Regle pressentie: ${isWeekend ? 'week-end' : days <= 4 ? '1 a 4 jours' : days <= 10 ? '5 a 10 jours' : 'invalide'}<br>
       Duree calculee: ${days} jour(s)<br>
       Montant estime: ${formatCurrency(amount)}<br>
       Caution estimee: ${formatCurrency(deposit)}<br>
       Le montant final sera valide cote serveur.
-    `;
+    `, true);
   }
 
   async function submitContractForm() {
     const payload = collectContractPayload();
+    if (!payload.items.length) {
+      setStatus('Ajoute au moins une quantite avant de creer le contrat.');
+      return;
+    }
     const availabilityByProduct = await ensureAvailabilityReady_(payload.pickup_date, payload.return_date);
     const stockErrors = [];
     payload.items.forEach(item => {
@@ -1247,8 +1289,11 @@
     setStatus('Creation du contrat en cours...');
     try {
       state.currentContract = await runServer('apiCreateContract', payload);
-      state.bootstrap.dashboard = await runServer('apiGetDashboardData');
+      if (state.currentContract && state.currentContract.transaction && state.currentContract.transaction.generated_contract_url) {
+        window.open(state.currentContract.transaction.generated_contract_url, '_blank', 'noopener');
+      }
       render();
+      refreshDashboard(false).catch(error => setStatus(error.message));
       setStatus('Contrat cree: ' + state.currentContract.transaction.contract_number);
     } catch (error) {
       setStatus(error.message);
@@ -1306,9 +1351,12 @@
     setStatus('Creation forcee du contrat en cours...');
     try {
       state.currentContract = await runServer('apiCreateContract', payload);
+      if (state.currentContract && state.currentContract.transaction && state.currentContract.transaction.generated_contract_url) {
+        window.open(state.currentContract.transaction.generated_contract_url, '_blank', 'noopener');
+      }
       state.forceOverrideDraft = null;
-      state.bootstrap.dashboard = await runServer('apiGetDashboardData');
       render();
+      refreshDashboard(false).catch(error => setStatus(error.message));
       setStatus('Contrat force cree.');
     } catch (error) {
       setStatus(error.message);

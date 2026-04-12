@@ -130,7 +130,7 @@ var RacsorDriveService = (function () {
     if (!folder) {
       return { id: '', name: '', url: '' };
     }
-    var fileName = transaction.folder_name + '_etat_final.txt';
+    var fileName = transaction.folder_name + '_etatFinal.txt';
     trashExistingFilesByName_(folder, fileName);
     var lines = [
       'Contrat: ' + (transaction.contract_number || ''),
@@ -138,8 +138,8 @@ var RacsorDriveService = (function () {
       'Statut: ' + (transaction.status || ''),
       'Retrait: ' + (transaction.pickup_date ? RacsorUtils.toContractDate(transaction.pickup_date) : '') + ' ' + (transaction.pickup_hour || ''),
       'Retour: ' + (transaction.return_date ? RacsorUtils.toContractDate(transaction.return_date) : '') + ' ' + (transaction.return_hour || ''),
-      'Montant TTC: ' + (transaction.total_amount_ttc || 0) + ' EUR',
-      'Caution: ' + (transaction.total_deposit_amount || 0) + ' EUR',
+      'Montant TTC: ' + (transaction.total_amount_ttc || 0) + ' €',
+      'Caution: ' + (transaction.total_deposit_amount || 0) + ' €',
       ''
     ];
 

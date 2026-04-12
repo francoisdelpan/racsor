@@ -11,7 +11,7 @@ var RacsorContractService = (function () {
     }) : null;
     return {
       email: email,
-      role: user ? user.role : 'RESP'
+      role: user ? user.role : 'DRIVE'
     };
   }
 
