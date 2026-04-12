@@ -10,14 +10,19 @@ function include(filename) {
 }
 
 function getAppBootstrapData() {
+  ensureRuntimeProjectSetup_();
   seedDefaultRespUsers_();
-  return {
+  var payload = {
     settings: RacsorConfig.getProjectSettings(),
     colors: RacsorConfig.COLORS,
     user: RacsorContractService.getCurrentUserRole(),
     referenceData: RacsorContractService.getReferenceData(false),
     dashboard: RacsorContractService.getDashboardData()
   };
+  if (!payload.referenceData || !payload.referenceData.products || !payload.referenceData.products.length) {
+    throw new Error('Aucun produit charge. Verifie l initialisation du projet et la feuille Products.');
+  }
+  return payload;
 }
 
 function apiGetAdminData() {

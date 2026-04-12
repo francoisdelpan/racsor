@@ -51,7 +51,7 @@ function hasStockBaseData_() {
 
 function seedDefaultRespUsers_() {
   var defaultEmails = [
-    'francois_pannier@franchise.carrefour.com',
+    'francois_delpan@franchise.carrefour.com',
     'gaelle_botineau@franchise.carrefour.com',
     'emmanuel_denelle@franchise.carrefour.com'
   ];
@@ -103,4 +103,15 @@ function seedDemoUsersIfMissing() {
 
 function runDailyChecks() {
   return RacsorNotificationService.runDailyChecks();
+}
+
+function ensureRuntimeProjectSetup_() {
+  Object.keys(RacsorConfig.SHEET_HEADERS).forEach(function (sheetName) {
+    RacsorRepository.ensureSheet(sheetName, RacsorConfig.SHEET_HEADERS[sheetName]);
+  });
+  seedDefaultData_();
+  RacsorStockService.ensureStockSheetExists();
+  if (!hasStockBaseData_()) {
+    RacsorStockService.initializeStockBase_(new Date());
+  }
 }

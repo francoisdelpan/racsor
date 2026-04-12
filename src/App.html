@@ -54,37 +54,13 @@
   async function boot() {
     setStatus('Chargement des donnees...');
     state.bootstrap = await runServer('getAppBootstrapData');
-    if (!state.bootstrap) {
-      state.bootstrap = {};
+    if (!state.bootstrap || !state.bootstrap.referenceData || !Array.isArray(state.bootstrap.referenceData.products)) {
+      throw new Error('Bootstrap invalide: produits introuvables.');
     }
-    if (!state.bootstrap.user) {
-      state.bootstrap.user = { email: '', role: 'DRIVE' };
-    }
-    state.bootstrap.referenceData = Object.assign({
-      products: [],
-      pricingRules: [],
-      prices: [],
-      returnStates: [],
-      users: []
-    }, state.bootstrap.referenceData || {});
-    state.bootstrap.dashboard = Object.assign({
-      today: '',
-      stock: [],
-      pickups: [],
-      returns: [],
-      incidents: [],
-      late: [],
-      stockAlerts: [],
-      recentContracts: [],
-      closedContracts: [],
-      pickupsTodayCount: 0,
-      returnsTodayCount: 0,
-      pickupsFutureCount: 0,
-      returnsFutureCount: 0
-    }, state.bootstrap.dashboard || {});
-    if (!state.bootstrap.settings) {
-      state.bootstrap.settings = {};
-    }
+    state.bootstrap.user = state.bootstrap.user || { email: '', role: 'DRIVE' };
+    state.bootstrap.referenceData = Object.assign({ products: [], pricingRules: [], prices: [], returnStates: [], users: [] }, state.bootstrap.referenceData || {});
+    state.bootstrap.dashboard = Object.assign({ today: '', stock: [], pickups: [], returns: [], incidents: [], late: [], stockAlerts: [], recentContracts: [], closedContracts: [], pickupsTodayCount: 0, returnsTodayCount: 0, pickupsFutureCount: 0, returnsFutureCount: 0 }, state.bootstrap.dashboard || {});
+    state.bootstrap.settings = state.bootstrap.settings || {};
     render();
     setStatus('Application prete.');
   }
