@@ -16,17 +16,55 @@ var RacsorContractService = (function () {
   }
 
   function getReferenceData(includeUsers) {
+    var products = RacsorRepository.getAll(RacsorConfig.SHEETS.PRODUCTS);
+    var pricingRules = RacsorRepository.getAll(RacsorConfig.SHEETS.PRICING_RULES);
+    var prices = RacsorRepository.getAll(RacsorConfig.SHEETS.PRICES);
+    var returnStates = RacsorRepository.getAll(RacsorConfig.SHEETS.RETURN_STATES);
+
+    if (!products.length || !pricingRules.length || !prices.length || !returnStates.length) {
+      try {
+        ensureRuntimeProjectSetup_();
+      } catch (error) {
+      }
+      products = RacsorRepository.getAll(RacsorConfig.SHEETS.PRODUCTS);
+      pricingRules = RacsorRepository.getAll(RacsorConfig.SHEETS.PRICING_RULES);
+      prices = RacsorRepository.getAll(RacsorConfig.SHEETS.PRICES);
+      returnStates = RacsorRepository.getAll(RacsorConfig.SHEETS.RETURN_STATES);
+    }
+
+    if (!products.length) {
+      products = RacsorConfig.DEFAULT_PRODUCTS.map(function (item) {
+        return {
+          id: item.id,
+          name: item.name,
+          sku: '',
+          stock_max: item.stock_max,
+          deposit_amount: item.deposit_amount,
+          is_active: item.is_active
+        };
+      });
+    }
+    if (!pricingRules.length) {
+      pricingRules = RacsorConfig.DEFAULT_PRICING_RULES.slice();
+    }
+    if (!prices.length) {
+      prices = RacsorConfig.DEFAULT_PRICES.slice();
+    }
+    if (!returnStates.length) {
+      returnStates = RacsorConfig.DEFAULT_STATES.slice();
+    }
+
     var data = {
-      products: RacsorRepository.getAll(RacsorConfig.SHEETS.PRODUCTS).filter(function (item) {
+      products: products.filter(function (item) {
         return String(item.is_active) !== 'false';
       }),
-      pricingRules: RacsorRepository.getAll(RacsorConfig.SHEETS.PRICING_RULES).filter(function (item) {
+      pricingRules: pricingRules.filter(function (item) {
         return String(item.is_active) !== 'false';
       }),
-      prices: RacsorRepository.getAll(RacsorConfig.SHEETS.PRICES).filter(function (item) {
+      prices: prices.filter(function (item) {
         return String(item.is_active) !== 'false';
       }),
-      returnStates: RacsorRepository.getAll(RacsorConfig.SHEETS.RETURN_STATES).filter(function (item) {
+      returnStates: returnStates.filter(function (item) {
         return String(item.is_active) !== 'false';
       })
     };

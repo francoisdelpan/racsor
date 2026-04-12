@@ -124,3 +124,57 @@ function apiUpdatePricingRuleAdmin(payload) {
 function apiAddPricingRuleAdmin(payload) {
   return RacsorContractService.addPricingRuleAdmin(payload);
 }
+
+function debugRuntimeSetup() {
+  var settings = RacsorConfig.getProjectSettings();
+  var activeSpreadsheet = null;
+  try {
+    activeSpreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  } catch (error) {
+    activeSpreadsheet = null;
+  }
+
+  var runtimeSpreadsheet = null;
+  try {
+    runtimeSpreadsheet = RacsorRepository.getSpreadsheet();
+  } catch (error) {
+    runtimeSpreadsheet = null;
+  }
+
+  var sheets = {};
+  Object.keys(RacsorConfig.SHEETS).forEach(function (key) {
+    var name = RacsorConfig.SHEETS[key];
+    try {
+      var sheet = runtimeSpreadsheet ? runtimeSpreadsheet.getSheetByName(name) : null;
+      sheets[name] = sheet ? {
+        exists: true,
+        lastRow: sheet.getLastRow(),
+        lastColumn: sheet.getLastColumn(),
+        headers: sheet.getLastRow() >= 1 ? sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), 1)).getValues()[0] : []
+      } : {
+        exists: false,
+        lastRow: 0,
+        lastColumn: 0,
+        headers: []
+      };
+    } catch (error) {
+      sheets[name] = {
+        exists: false,
+        error: String(error && error.message ? error.message : error)
+      };
+    }
+  });
+
+  var result = {
+    settingsSpreadsheetId: settings.spreadsheetId || '',
+    activeSpreadsheetId: activeSpreadsheet ? activeSpreadsheet.getId() : '',
+    activeSpreadsheetName: activeSpreadsheet ? activeSpreadsheet.getName() : '',
+    runtimeSpreadsheetId: runtimeSpreadsheet ? runtimeSpreadsheet.getId() : '',
+    runtimeSpreadsheetName: runtimeSpreadsheet ? runtimeSpreadsheet.getName() : '',
+    currentUser: RacsorContractService.getCurrentUserRole(),
+    productCount: RacsorContractService.getReferenceData(false).products.length,
+    sheets: sheets
+  };
+  Logger.log(JSON.stringify(result, null, 2));
+  return result;
+}

@@ -24,6 +24,16 @@ var RacsorRepository = (function () {
     if (sheet.getLastRow() === 0) {
       sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
       sheet.setFrozenRows(1);
+      return sheet;
+    }
+    var currentHeaders = sheet.getRange(1, 1, 1, headers.length).getValues()[0];
+    var headersMatch = headers.every(function (header, index) {
+      return String(currentHeaders[index] || '') === String(header);
+    });
+    if (!headersMatch && sheet.getLastRow() <= 1) {
+      sheet.clearContents();
+      sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+      sheet.setFrozenRows(1);
     }
     return sheet;
   }

@@ -42,6 +42,7 @@ function seedDefaultData_() {
 
   RacsorStockService.ensureStockSheetExists();
   seedDefaultRespUsers_();
+  repairMissingCoreData_();
 }
 
 function hasStockBaseData_() {
@@ -51,7 +52,7 @@ function hasStockBaseData_() {
 
 function seedDefaultRespUsers_() {
   var defaultEmails = [
-    'francois_delpan@franchise.carrefour.com',
+    'francois_pannier@franchise.carrefour.com',
     'gaelle_botineau@franchise.carrefour.com',
     'emmanuel_denelle@franchise.carrefour.com'
   ];
@@ -113,5 +114,44 @@ function ensureRuntimeProjectSetup_() {
   RacsorStockService.ensureStockSheetExists();
   if (!hasStockBaseData_()) {
     RacsorStockService.initializeStockBase_(new Date());
+  }
+}
+
+function repairMissingCoreData_() {
+  if (!RacsorRepository.getAll(RacsorConfig.SHEETS.PRODUCTS).length) {
+    RacsorRepository.replaceAll(RacsorConfig.SHEETS.PRODUCTS, RacsorConfig.DEFAULT_PRODUCTS.map(function (item) {
+      return {
+        id: item.id,
+        name: item.name,
+        sku: '',
+        stock_max: item.stock_max,
+        deposit_amount: item.deposit_amount,
+        is_active: item.is_active,
+        created_at: RacsorUtils.nowIso(),
+        updated_at: RacsorUtils.nowIso()
+      };
+    }));
+  }
+
+  if (!RacsorRepository.getAll(RacsorConfig.SHEETS.PRICING_RULES).length) {
+    RacsorRepository.replaceAll(RacsorConfig.SHEETS.PRICING_RULES, RacsorConfig.DEFAULT_PRICING_RULES);
+  }
+
+  if (!RacsorRepository.getAll(RacsorConfig.SHEETS.PRICES).length) {
+    RacsorRepository.replaceAll(RacsorConfig.SHEETS.PRICES, RacsorConfig.DEFAULT_PRICES.map(function (item) {
+      return {
+        id: item.id,
+        product_id: item.product_id,
+        pricing_rule_id: item.pricing_rule_id,
+        unit_price_ttc: item.unit_price_ttc,
+        is_active: item.is_active,
+        created_at: RacsorUtils.nowIso(),
+        updated_at: RacsorUtils.nowIso()
+      };
+    }));
+  }
+
+  if (!RacsorRepository.getAll(RacsorConfig.SHEETS.RETURN_STATES).length) {
+    RacsorRepository.replaceAll(RacsorConfig.SHEETS.RETURN_STATES, RacsorConfig.DEFAULT_STATES);
   }
 }
