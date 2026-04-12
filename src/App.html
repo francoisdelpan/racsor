@@ -14,6 +14,7 @@
     stockMatrixStartDate: null,
     stockMatrixHiddenProducts: {},
     periodAvailability: [],
+    periodAvailabilityKey: '',
     stockMatrixLoading: false,
     periodAvailabilityLoading: false,
     uploadTargetContractId: null,
@@ -75,6 +76,22 @@
     if (el) {
       el.textContent = message;
     }
+    showSnackbar(message);
+  }
+
+  function showSnackbar(message) {
+    if (!message) {
+      return;
+    }
+    const root = document.getElementById('snackbar-root');
+    if (!root) {
+      return;
+    }
+    root.innerHTML = `<div class="snackbar is-visible">${escapeHtml(message)}</div>`;
+    window.clearTimeout(showSnackbar.timeoutId);
+    showSnackbar.timeoutId = window.setTimeout(() => {
+      root.innerHTML = '';
+    }, 3200);
   }
 
   function formatCurrency(value) {
@@ -139,6 +156,7 @@
           </aside>
           <main class="content">
             <div id="status-line" class="status-line"></div>
+            <div id="snackbar-root" class="snackbar-root"></div>
             ${renderView()}
           </main>
         </div>
@@ -563,7 +581,13 @@
           <div class="panel inset-panel">
             <div class="panel-title"><h3>Action SAV</h3></div>
             <p class="muted">Cette vue sert a rendre la caution et cloturer administrativement le dossier.</p>
-            <div class="inline-actions">
+            <div class="form-grid">
+              <div class="field"><label>Caution remboursee (€)</label><input id="sav-refund-amount" type="number" step="0.01" min="0" value="${parseNumeric(transaction.total_deposit_amount)}"></div>
+              <div class="field"><label>Motif</label><input id="sav-close-reason" placeholder="Ex: Remboursement partiel, casse, retenue..."></div>
+              <div class="field field-full"><label>Commentaire SAV</label><textarea id="sav-close-comment" placeholder="Commentaires libres, explications, validation..."></textarea></div>
+              <div class="field field-full"><label>Scan ticket de caisse</label><input id="sav-ticket-file" type="file" accept=\"image/*,.pdf\"></div>
+            </div>
+            <div class="inline-actions" style="margin-top:12px;">
               <button class="button button-primary" onclick="closeSavContract()">Rendre la caution / cloturer</button>
             </div>
           </div>
@@ -612,6 +636,7 @@
   }
 
   function renderInventoryView() {
+    const stockByProduct = Object.fromEntries((state.bootstrap.dashboard.stock || []).map(item => [item.product_id, item.available]));
     return `
       <section class="panel">
         <div class="panel-title"><h2>Inventaire</h2></div>
@@ -625,7 +650,7 @@
             ${state.bootstrap.referenceData.products.map(item => `
               <tr>
                 <td>${escapeHtml(item.name)}</td>
-                <td><input data-inventory-product="${item.id}" type="number" min="0" placeholder="${item.stock_max}"></td>
+                <td><input data-inventory-product="${item.id}" type="number" min="0" placeholder="${stockByProduct[item.id] ?? item.stock_max}"></td>
               </tr>
             `).join('')}
           </tbody>
@@ -677,6 +702,7 @@
 
   function renderAdminView() {
     const ref = state.bootstrap.referenceData;
+    const closedContracts = state.bootstrap.dashboard.closedContracts || [];
     return `
       <section class="panel">
         <div class="panel-title"><h2>Admin</h2></div>
@@ -759,7 +785,37 @@
             </table>
           </div>
         </div>
+        <div class="panel inset-panel">
+          <div class="panel-title"><h3>Dossiers clotures</h3></div>
+          ${renderClosedContractsTable(closedContracts)}
+        </div>
       </section>
+    `;
+  }
+
+  function renderClosedContractsTable(items) {
+    if (!items.length) {
+      return '<p class="muted">Aucun dossier cloture.</p>';
+    }
+    return `
+      <table>
+        <thead><tr><th>Contrat</th><th>Client</th><th>Maj</th><th></th></tr></thead>
+        <tbody>
+          ${items.map(item => `
+            <tr>
+              <td>${escapeHtml(item.contract_number)}</td>
+              <td>${escapeHtml(item.client_full_name)}</td>
+              <td>${escapeHtml(formatDateShort(item.updated_at || item.created_at, true))}</td>
+              <td>
+                <div class="inline-actions">
+                  ${item.drive_folder_url ? `<a class="button button-secondary" href="${escapeHtml(item.drive_folder_url)}" target="_blank">Dossier</a>` : ''}
+                  ${item.signed_contract_url ? `<a class="button button-secondary" href="${escapeHtml(item.signed_contract_url)}" target="_blank">Contrat signe</a>` : ''}
+                </div>
+              </td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
     `;
   }
 
@@ -862,15 +918,18 @@
   async function refreshPeriodAvailability() {
     if (!hasContractDatesSelected()) {
       state.periodAvailability = [];
+      state.periodAvailabilityKey = '';
       updatePeriodAvailabilityUi();
       return;
     }
     const form = document.getElementById('contract-form');
+    const key = `${form.pickup_date.value}|${form.return_date.value}`;
     setStatus('Calcul du stock theorique sur la periode...');
     state.periodAvailabilityLoading = true;
     updatePeriodAvailabilityUi();
     try {
       state.periodAvailability = await runServerBackground('apiGetPeriodAvailability', form.pickup_date.value, form.return_date.value);
+      state.periodAvailabilityKey = key;
       setStatus('Stock theorique de la periode calcule.');
     } catch (error) {
       setStatus(error.message);
@@ -975,6 +1034,19 @@
 
   async function submitContractForm() {
     const payload = collectContractPayload();
+    const availabilityByProduct = await ensureAvailabilityReady_(payload.pickup_date, payload.return_date);
+    const stockErrors = [];
+    payload.items.forEach(item => {
+      const available = Number(availabilityByProduct[item.product_id] || 0);
+      const requested = Number(item.quantity || 0);
+      if (requested > available) {
+        stockErrors.push(`${findProductName(item.product_id)}: ${available} disponible(s) / ${requested} demande(s)`);
+      }
+    });
+    if (stockErrors.length) {
+      setStatus(`Stock insuffisant: ${stockErrors.join(' ; ')}`);
+      return;
+    }
     setStatus('Creation du contrat en cours...');
     try {
       state.currentContract = await runServer('apiCreateContract', payload);
@@ -1000,6 +1072,9 @@
         base64
       });
       await refreshAllData();
+      state.currentContract = null;
+      state.periodAvailability = [];
+      state.currentView = 'dashboard';
       render();
       setStatus('Contrat signe enregistre.');
     } catch (error) {
@@ -1146,6 +1221,7 @@
       state.pickupContract = await runServer('apiMarkPickedUp', state.pickupContract.transaction.id);
       await refreshAllData();
       state.pickupContract = null;
+      state.currentView = 'dashboard';
       render();
       setStatus('Depart des marchandises confirme.');
     } catch (error) {
@@ -1184,6 +1260,7 @@
       });
       await refreshAllData();
       state.driveReturnContract = null;
+      state.currentView = 'dashboard';
       render();
       setStatus('Retour enregistre.');
     } catch (error) {
@@ -1197,9 +1274,26 @@
     }
     setStatus('Cloture du dossier...');
     try {
-      state.savReturnContract = await runServer('apiCloseContract', state.savReturnContract.transaction.id);
+      const ticketInput = document.getElementById('sav-ticket-file');
+      let ticketPayload = null;
+      if (ticketInput && ticketInput.files && ticketInput.files[0]) {
+        const ticketFile = ticketInput.files[0];
+        ticketPayload = {
+          name: ticketFile.name,
+          mimeType: ticketFile.type,
+          base64: await fileToBase64(ticketFile)
+        };
+      }
+      state.savReturnContract = await runServer('apiCloseContract', {
+        transaction_id: state.savReturnContract.transaction.id,
+        refund_amount: parseNumeric(document.getElementById('sav-refund-amount').value),
+        reason: document.getElementById('sav-close-reason').value.trim(),
+        comment: document.getElementById('sav-close-comment').value.trim(),
+        ticket_file: ticketPayload
+      });
       await refreshAllData();
       state.savReturnContract = null;
+      state.currentView = 'dashboard';
       render();
       setStatus('Dossier clos.');
     } catch (error) {
@@ -1334,6 +1428,19 @@
     } catch (error) {
       setStatus(error.message);
     }
+  }
+
+  async function ensureAvailabilityReady_(pickupDate, returnDate) {
+    if (!pickupDate || !returnDate) {
+      return {};
+    }
+    const key = `${pickupDate}|${returnDate}`;
+    if (state.periodAvailabilityKey !== key || !state.periodAvailability.length) {
+      state.periodAvailability = await runServerBackground('apiGetPeriodAvailability', pickupDate, returnDate);
+      state.periodAvailabilityKey = key;
+      updatePeriodAvailabilityUi();
+    }
+    return Object.fromEntries((state.periodAvailability || []).map(item => [item.product_id, Number(item.available || 0)]));
   }
 
   async function saveUserAdmin() {

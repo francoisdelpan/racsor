@@ -190,6 +190,12 @@
     margin-top: 14px;
   }
 
+  .kpi small {
+    display: block;
+    margin-top: 10px;
+    opacity: 0.92;
+  }
+
   .kpi-blue { background: linear-gradient(160deg, var(--color-blue), #126bc4); }
   .kpi-orange { background: linear-gradient(160deg, var(--color-orange), #ff9d58); }
   .kpi-red { background: linear-gradient(160deg, var(--color-red), #d65044); }
@@ -380,10 +386,34 @@
   }
 
   .status-line {
-    padding: 10px 14px;
-    border-radius: 12px;
-    margin-bottom: 18px;
-    background: rgba(0, 75, 147, 0.08);
+    display: none;
+  }
+
+  .snackbar-root {
+    position: fixed;
+    top: 18px;
+    right: 18px;
+    z-index: 20;
+    pointer-events: none;
+  }
+
+  .snackbar {
+    display: flex;
+    align-items: center;
+    width: min(420px, calc(100vw - 36px));
+    padding: 14px 16px;
+    border-radius: 14px;
+    color: #fff;
+    background: rgba(16, 35, 58, 0.98);
+    box-shadow: var(--shadow-card);
+    transform: translateY(-8px);
+    opacity: 0;
+    transition: opacity 160ms ease, transform 160ms ease;
+  }
+
+  .snackbar.is-visible {
+    transform: translateY(0);
+    opacity: 1;
   }
 
   .product-toggle-list {

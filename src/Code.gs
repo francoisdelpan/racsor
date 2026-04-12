@@ -55,8 +55,8 @@ function apiRecordReturn(payload) {
   return RacsorContractService.recordReturn(payload);
 }
 
-function apiCloseContract(transactionId) {
-  return RacsorContractService.closeContract(transactionId);
+function apiCloseContract(payload) {
+  return RacsorContractService.closeContract(payload);
 }
 
 function apiGetDashboardData() {

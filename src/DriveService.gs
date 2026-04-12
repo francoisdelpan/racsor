@@ -48,9 +48,9 @@ var RacsorDriveService = (function () {
       body.replaceText('{{PICKUP_HOUR}}', transaction.pickup_hour || '');
       body.replaceText('{{RETURN_DATE}}', transaction.return_date);
       body.replaceText('{{RETURN_HOUR}}', transaction.return_hour || '');
-      body.replaceText('{{TOTAL_AMOUNT_TTC}}', String(transaction.total_amount_ttc));
-      body.replaceText('{{TOTAL}}', String(transaction.total_amount_ttc));
-      body.replaceText('{{TOTAL_DEPOSIT_AMOUNT}}', String(transaction.total_deposit_amount));
+      body.replaceText('{{TOTAL_AMOUNT_TTC}}', String(transaction.total_amount_ttc) + ' €');
+      body.replaceText('{{TOTAL}}', String(transaction.total_amount_ttc) + ' €');
+      body.replaceText('{{TOTAL_DEPOSIT_AMOUNT}}', String(transaction.total_deposit_amount) + ' €');
       body.replaceText('{{ITEMS}}', itemLines);
       doc.saveAndClose();
       return { id: file.getId(), name: file.getName(), url: file.getUrl() };
@@ -69,8 +69,8 @@ var RacsorDriveService = (function () {
       'Produits:',
       buildItemLines_(items),
       '',
-      'Montant TTC: ' + transaction.total_amount_ttc,
-      'Caution: ' + transaction.total_deposit_amount
+      'Montant TTC: ' + transaction.total_amount_ttc + ' €',
+      'Caution: ' + transaction.total_deposit_amount + ' €'
     ].join('\n');
     var blob = Utilities.newBlob(lines, 'text/plain', fileName + '.txt');
     var textFile = folder.createFile(blob);
@@ -83,9 +83,9 @@ var RacsorDriveService = (function () {
       var dayDetail = item.pricing_rule_code === 'WEEKEND' ? '' : ' x nombre de jours: ' + item.charged_days;
       return item.product_label_snapshot
         + ' -> Qté: ' + item.quantity
-        + ' x forfait TTC: ' + ruleDetail + ' (' + item.unit_price_ttc + ' Eur)'
+        + ' x forfait TTC: ' + ruleDetail + ' (' + item.unit_price_ttc + ' €)'
         + dayDetail
-        + ' x total: ' + item.line_amount_ttc + ' Eur';
+        + ' x total: ' + item.line_amount_ttc + ' €';
     }).join('\n');
   }
 
@@ -165,6 +165,31 @@ var RacsorDriveService = (function () {
     return { id: file.getId(), name: file.getName(), url: file.getUrl() };
   }
 
+  function saveSavClosureSummary(transaction, payload) {
+    var folder = getFolderSafe_(transaction.drive_folder_id);
+    if (!folder) {
+      folder = ensureContractFolder(transaction.folder_name);
+      folder = folder.id ? getFolderSafe_(folder.id) : null;
+    }
+    if (!folder) {
+      return { id: '', name: '', url: '' };
+    }
+    var fileName = transaction.folder_name + '_cloture_sav.txt';
+    trashExistingFilesByName_(folder, fileName);
+    var lines = [
+      'Contrat: ' + (transaction.contract_number || ''),
+      'Client: ' + (transaction.client_full_name || ''),
+      'Statut final: ' + (transaction.status || ''),
+      'Caution remboursee: ' + (payload.refund_amount || 0) + ' €',
+      'Motif: ' + (payload.reason || ''),
+      'Commentaire SAV: ' + (payload.comment || ''),
+      payload.ticket_file_url ? 'Ticket de caisse: ' + payload.ticket_file_url : ''
+    ].filter(Boolean);
+    var blob = Utilities.newBlob(lines.join('\n'), 'text/plain', fileName);
+    var file = folder.createFile(blob);
+    return { id: file.getId(), name: file.getName(), url: file.getUrl() };
+  }
+
   function getFolderSafe_(folderId) {
     if (!folderId) {
       return null;
@@ -205,6 +230,7 @@ var RacsorDriveService = (function () {
     saveSignedDocument: saveSignedDocument,
     saveDocumentToContractFolder: saveDocumentToContractFolder,
     saveFinalStateSummary: saveFinalStateSummary,
+    saveSavClosureSummary: saveSavClosureSummary,
     getFolderSafe_: getFolderSafe_,
     getFileSafe_: getFileSafe_
   };
