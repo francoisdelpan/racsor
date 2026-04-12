@@ -327,21 +327,10 @@
             ${renderStockSummaryTable(dashboard.stock)}
           </div>
           <div class="panel">
-            <div class="panel-title"><h3>Retours et alertes</h3></div>
-            ${renderContractList(dashboard.returns.concat(dashboard.late).slice(0, 10))}
+            <div class="panel-title"><h3>Alertes stock negatifs</h3></div>
+            ${renderNegativeStockTable(dashboard.stockAlerts || [])}
           </div>
         </div>
-        ${dashboard.stockAlerts && dashboard.stockAlerts.length ? `
-          <div class="panel">
-            <div class="panel-title"><h3>Alertes stock negatif</h3></div>
-            <table>
-              <thead><tr><th>Produit</th><th>Stock</th></tr></thead>
-              <tbody>
-                ${dashboard.stockAlerts.map(item => `<tr><td>${escapeHtml(item.product_name)}</td><td class="validation-error">${item.available}</td></tr>`).join('')}
-              </tbody>
-            </table>
-          </div>
-        ` : ''}
         <div class="panel">
           <div class="panel-title"><h3>Derniers contrats crees</h3></div>
           ${renderRecentContractsTable(dashboard.recentContracts || [])}
@@ -361,6 +350,25 @@
             <tr>
               <td>${escapeHtml(item.product_name)}</td>
               <td>${item.available}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+  }
+
+  function renderNegativeStockTable(items) {
+    if (!items.length) {
+      return '<p class="muted">Aucun stock negatif.</p>';
+    }
+    return `
+      <table>
+        <thead><tr><th>Produit</th><th>Stock</th></tr></thead>
+        <tbody>
+          ${items.map(item => `
+            <tr>
+              <td>${escapeHtml(item.product_name)}</td>
+              <td class="validation-error">${item.available}</td>
             </tr>
           `).join('')}
         </tbody>
