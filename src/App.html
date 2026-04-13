@@ -269,6 +269,10 @@
           ${navButton('admin', 'Admin')}
         </div>
       ` : ''}
+      <div class="nav-group">
+        <div class="nav-group-title">Aide</div>
+        ${navButton('help', 'HELP')}
+      </div>
     `;
   }
 
@@ -293,9 +297,135 @@
         return renderSavReturnView();
       case 'admin':
         return renderAdminView();
+      case 'help':
+        return renderHelpView();
       default:
         return renderDashboardView();
     }
+  }
+
+  function renderHelpView() {
+    const workflowRows = [
+      {
+        status: 'draft',
+        label: 'Brouillon',
+        done: 'Le contrat est cree, le stock est reserve, le dossier Drive et le document initial sont prepares.',
+        todo: 'Faire signer le contrat ou annuler la demande.'
+      },
+      {
+        status: 'signed',
+        label: 'Signe',
+        done: 'Le contrat signe a ete televerse et le dossier est pret pour le retrait.',
+        todo: 'Remettre la marchandise au client puis confirmer l enlevement.'
+      },
+      {
+        status: 'picked_up',
+        label: 'Enleve',
+        done: 'La marchandise est sortie, le contrat est en cours de location.',
+        todo: 'Attendre le retour DRIVE et controler l etat du materiel.'
+      },
+      {
+        status: 'returned',
+        label: 'Retour conforme',
+        done: 'Le retour a ete saisi sans incident et le stock a ete reintegre.',
+        todo: 'Faire la validation SAV puis cloturer le dossier.'
+      },
+      {
+        status: 'incident',
+        label: 'Incident',
+        done: 'Le retour a ete saisi avec au moins un etat non conforme.',
+        todo: 'Analyser en SAV, documenter le dossier, gerer la caution puis valider.'
+      },
+      {
+        status: 'late',
+        label: 'En retard',
+        done: 'La date de retour est depassee et le dossier a ete remonte en alerte.',
+        todo: 'Relancer le client, enregistrer le retour reel, puis traiter en SAV si besoin.'
+      },
+      {
+        status: 'ready_to_close',
+        label: 'Pret a cloturer',
+        done: 'Le retour a ete revu par le SAV et le dossier est considere comme complet.',
+        todo: 'Cloturer administrativement le contrat.'
+      },
+      {
+        status: 'closed',
+        label: 'Cloture',
+        done: 'Le cycle est termine et le dossier est archive comme finalise.',
+        todo: 'Aucune action attendue.'
+      },
+      {
+        status: 'cancelled',
+        label: 'Annule',
+        done: 'Le contrat a ete annule et le stock reserve a ete remis a disposition.',
+        todo: 'Aucune action attendue.'
+      }
+    ];
+
+    return `
+      <section class="panel">
+        <div class="panel-title">
+          <h2>HELP</h2>
+          <a class="button button-primary" href="https://github.com/francoisdelpan/racsor/issues/new" target="_blank" rel="noopener">Ouvrir un ticket</a>
+        </div>
+        <p class="muted">Vue simple de reference pour comprendre le cycle des dossiers, les couleurs affichees dans l application et l action attendue a chaque etape.</p>
+      </section>
+
+      <section class="panel inset-panel">
+        <div class="panel-title"><h3>Lecture rapide</h3></div>
+        <div class="help-chip-row">
+          <span class="tag tag-draft">Orange: dossier en cours de preparation</span>
+          <span class="tag tag-picked_up">Vert: etape terminee ou retour conforme</span>
+          <span class="tag tag-ready_to_close">Bleu: validation interne restante</span>
+          <span class="tag tag-incident">Rouge: alerte, incident ou blocage</span>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-title"><h3>Tableau des etats</h3></div>
+        <div class="table-scroll">
+          <table class="help-table">
+            <thead>
+              <tr>
+                <th>Etat technique</th>
+                <th>Couleur</th>
+                <th>Ce qui a ete fait</th>
+                <th>Ce qu il reste a faire</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${workflowRows.map(row => `
+                <tr>
+                  <td>
+                    <div><span class="tag tag-${escapeHtml(row.status)}">${escapeHtml(row.label)}</span></div>
+                    <div class="muted" style="margin-top:6px;">${escapeHtml(row.status)}</div>
+                  </td>
+                  <td>${renderHelpColorLabel(row.status)}</td>
+                  <td>${escapeHtml(row.done)}</td>
+                  <td>${escapeHtml(row.todo)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    `;
+  }
+
+  function renderHelpColorLabel(status) {
+    if (['draft', 'signed'].includes(status)) {
+      return 'Orange';
+    }
+    if (['picked_up', 'returned', 'closed'].includes(status)) {
+      return 'Vert';
+    }
+    if (['ready_to_close'].includes(status)) {
+      return 'Bleu';
+    }
+    if (['late', 'incident', 'cancelled'].includes(status)) {
+      return 'Rouge';
+    }
+    return 'Neutre';
   }
 
   function renderDashboardView() {

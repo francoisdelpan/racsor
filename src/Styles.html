@@ -342,6 +342,7 @@
   .tag-picked_up,
   .tag-returned,
   .tag-closed { background: rgba(45, 140, 87, 0.14); color: #236844; }
+  .tag-ready_to_close { background: rgba(0, 75, 147, 0.12); color: #0d4f8f; }
   .tag-late,
   .tag-incident,
   .tag-cancelled { background: rgba(191, 30, 16, 0.12); color: #8f251c; }
@@ -580,6 +581,16 @@
     overflow: auto;
     border-radius: var(--radius-md);
     border: 1px solid var(--color-border);
+  }
+
+  .help-chip-row {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .help-table td {
+    min-width: 160px;
   }
 
   .stock-matrix-table {
