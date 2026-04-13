@@ -388,7 +388,6 @@
             <thead>
               <tr>
                 <th>Etat technique</th>
-                <th>Couleur</th>
                 <th>Ce qui a ete fait</th>
                 <th>Ce qu il reste a faire</th>
               </tr>
@@ -400,7 +399,6 @@
                     <div><span class="tag tag-${escapeHtml(row.status)}">${escapeHtml(row.label)}</span></div>
                     <div class="muted" style="margin-top:6px;">${escapeHtml(row.status)}</div>
                   </td>
-                  <td>${renderHelpColorLabel(row.status)}</td>
                   <td>${escapeHtml(row.done)}</td>
                   <td>${escapeHtml(row.todo)}</td>
                 </tr>
@@ -410,22 +408,6 @@
         </div>
       </section>
     `;
-  }
-
-  function renderHelpColorLabel(status) {
-    if (['draft', 'signed'].includes(status)) {
-      return 'Orange';
-    }
-    if (['picked_up', 'returned', 'closed'].includes(status)) {
-      return 'Vert';
-    }
-    if (['ready_to_close'].includes(status)) {
-      return 'Bleu';
-    }
-    if (['late', 'incident', 'cancelled'].includes(status)) {
-      return 'Rouge';
-    }
-    return 'Neutre';
   }
 
   function renderDashboardView() {
@@ -521,7 +503,7 @@
               <td>${escapeHtml(item.contract_number)}</td>
               <td>${escapeHtml(item.client_full_name)}</td>
               <td>${escapeHtml(formatDateShort(item.pickup_date, true))} / ${escapeHtml(formatDateShort(item.return_date, true))}</td>
-              <td><span class="tag tag-${escapeHtml(item.status)}">${escapeHtml(item.status)}</span></td>
+              <td><span class="tag tag-${escapeHtml(item.status)}">${escapeHtml(formatContractStatusLabel(item.status))}</span></td>
             </tr>
           `).join('')}
         </tbody>
@@ -544,7 +526,7 @@
               <td>${escapeHtml(item.contract_number)}</td>
               <td>${escapeHtml(item.client_full_name)}</td>
               <td>${escapeHtml([normalizePhoneDisplay(item.client_phone), item.client_email].filter(Boolean).join(' / ') || '-')}</td>
-              <td><span class="tag tag-${escapeHtml(item.status)}">${escapeHtml(item.status)}</span></td>
+              <td><span class="tag tag-${escapeHtml(item.status)}">${escapeHtml(formatContractStatusLabel(item.status))}</span></td>
               <td>
                 <div class="inline-actions">
                   ${item.drive_folder_url ? `<a class="button button-secondary" href="${escapeHtml(item.drive_folder_url)}" target="_blank">Dossier</a>` : ''}
@@ -690,7 +672,7 @@
       <section class="panel">
         <div class="panel-title">
           <h2>Contrat courant</h2>
-          <span class="tag tag-${escapeHtml(transaction.status)}">${escapeHtml(transaction.status)}</span>
+          <span class="tag tag-${escapeHtml(transaction.status)}">${escapeHtml(formatContractStatusLabel(transaction.status))}</span>
         </div>
         <p><strong>${escapeHtml(transaction.contract_number)}</strong> · ${escapeHtml(transaction.client_full_name)}</p>
         <p class="muted">Montant TTC: ${formatCurrency(transaction.total_amount_ttc)} · Caution: ${formatCurrency(transaction.total_deposit_amount)}</p>
@@ -732,7 +714,7 @@
       <section class="panel">
         <div class="panel-title">
           <h2>${escapeHtml(transaction.contract_number)} · ${escapeHtml(transaction.client_full_name)}</h2>
-          <span class="tag tag-${escapeHtml(transaction.status)}">${escapeHtml(transaction.status)}</span>
+          <span class="tag tag-${escapeHtml(transaction.status)}">${escapeHtml(formatContractStatusLabel(transaction.status))}</span>
         </div>
         <p class="muted">Retrait prevu: ${escapeHtml(formatDateShort(transaction.pickup_date, true))} ${escapeHtml(transaction.pickup_hour || '')}</p>
         <p class="muted">
@@ -771,7 +753,7 @@
       <section class="panel">
         <div class="panel-title">
           <h2>${escapeHtml(transaction.contract_number)} · ${escapeHtml(transaction.client_full_name)}</h2>
-          <span class="tag tag-${escapeHtml(transaction.status)}">${escapeHtml(transaction.status)}</span>
+          <span class="tag tag-${escapeHtml(transaction.status)}">${escapeHtml(formatContractStatusLabel(transaction.status))}</span>
         </div>
         <p class="muted">Retour prevu: ${escapeHtml(formatDateShort(transaction.return_date, true))} ${escapeHtml(transaction.return_hour || '')}</p>
       </section>
@@ -836,7 +818,7 @@
       <section class="panel">
         <div class="panel-title">
           <h2>${escapeHtml(transaction.contract_number)} · ${escapeHtml(transaction.client_full_name)}</h2>
-          <span class="tag tag-${escapeHtml(transaction.status)}">${escapeHtml(transaction.status)}</span>
+          <span class="tag tag-${escapeHtml(transaction.status)}">${escapeHtml(formatContractStatusLabel(transaction.status))}</span>
         </div>
         <p class="muted">Rendu le ${escapeHtml(formatDateShort(transaction.return_date, true))} ${escapeHtml(transaction.return_hour || '')}</p>
         <div class="grid-2">
@@ -2010,6 +1992,21 @@
       'abime': 'Abimé',
       'casse': 'Cassé',
       'manquant': 'Manquant'
+    };
+    return map[String(value || '').toLowerCase()] || value;
+  }
+
+  function formatContractStatusLabel(value) {
+    const map = {
+      'draft': 'Brouillon',
+      'signed': 'Signe',
+      'picked_up': 'Enleve',
+      'returned': 'Retour conforme',
+      'incident': 'Incident',
+      'late': 'En retard',
+      'ready_to_close': 'Pret a cloturer',
+      'closed': 'Cloture',
+      'cancelled': 'Annule'
     };
     return map[String(value || '').toLowerCase()] || value;
   }

@@ -4,7 +4,7 @@
 
 [PRODUCTION V1.01]()
 
-[DEVELOPPEMENT V0.31](https://script.google.com/a/macros/franchise.carrefour.com/s/AKfycbzQ3NHBhik-HFnDr8fVveZK5ooJaYExAVf5ca7hUrgbLwqbyl7DOwKPPthC7WlfJRPb/exec)
+[DEVELOPPEMENT V0.32](https://script.google.com/a/macros/franchise.carrefour.com/s/AKfycbzQ3NHBhik-HFnDr8fVveZK5ooJaYExAVf5ca7hUrgbLwqbyl7DOwKPPthC7WlfJRPb/exec)
 
 [FAIRE UN TICKET](https://github.com/francoisdelpan/racsor/issues/new)
 
