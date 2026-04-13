@@ -20,7 +20,7 @@ Utiliser obligatoirement l'adresse mail professionnelle :
 
 Exemple :
 
-`prenom.nom@franchise.carrefour.com`
+`prenom_nom@franchise.carrefour.com`
 
 ## 3. Choisir le nom d'utilisateur
 
@@ -42,6 +42,4 @@ Suivre les etapes demandees par GitHub :
 
 ## 5. Voir le depot du projet
 
-Lien du repo :
-
-https://github.com/francoisdelpan/racsor
+[Lien du repo](https://github.com/francoisdelpan/racsor)
