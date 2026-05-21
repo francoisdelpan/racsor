@@ -1,5 +1,7 @@
-function doGet() {
-  return HtmlService.createTemplateFromFile('Index')
+function doGet(e) {
+  var template = HtmlService.createTemplateFromFile('Index');
+  template.initialParams = JSON.stringify((e && e.parameter) || {});
+  return template
     .evaluate()
     .setTitle('LOCATION MATERIEL')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
@@ -12,10 +14,20 @@ function include(filename) {
 function getAppBootstrapData() {
   ensureRuntimeProjectSetup_();
   seedDefaultRespUsers_();
+  var user = RacsorContractService.getCurrentUserRole();
+  if (!user.is_authorized) {
+    return {
+      settings: RacsorConfig.getProjectSettings(),
+      colors: RacsorConfig.COLORS,
+      user: user,
+      referenceData: { products: [], pricingRules: [], prices: [], returnStates: [], users: [] },
+      dashboard: { today: RacsorUtils.toDateOnlyString(new Date()), stock: [], pickups: [], returns: [], incidents: [], late: [], stockAlerts: [], recentContracts: [], closedContracts: [], pickupsTodayCount: 0, returnsTodayCount: 0, pickupsFutureCount: 0, returnsFutureCount: 0 }
+    };
+  }
   var payload = {
     settings: RacsorConfig.getProjectSettings(),
     colors: RacsorConfig.COLORS,
-    user: RacsorContractService.getCurrentUserRole(),
+    user: user,
     referenceData: RacsorContractService.getReferenceData(false),
     dashboard: RacsorContractService.getDashboardData()
   };
@@ -25,12 +37,24 @@ function getAppBootstrapData() {
   return payload;
 }
 
+function apiWhoAmI() {
+  return RacsorContractService.getCurrentUserRole();
+}
+
 function apiGetAdminData() {
   return RacsorContractService.getAdminData();
 }
 
 function apiCreateContract(payload) {
   return RacsorContractService.createContract(payload);
+}
+
+function apiUpdateContract(payload) {
+  return RacsorContractService.updateContract(payload);
+}
+
+function apiPrepareContractAssets(transactionId) {
+  return RacsorContractService.prepareContractAssets(transactionId);
 }
 
 function apiFindContractByNumber(contractNumber) {
@@ -67,6 +91,10 @@ function apiRecordReturn(payload) {
 
 function apiCloseContract(payload) {
   return RacsorContractService.closeContract(payload);
+}
+
+function apiReopenContract(payload) {
+  return RacsorContractService.reopenContract(payload);
 }
 
 function apiFinalizeSavReturn(payload) {

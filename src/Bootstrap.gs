@@ -39,6 +39,7 @@ function seedDefaultData_() {
   if (!RacsorRepository.getAll(RacsorConfig.SHEETS.RETURN_STATES).length) {
     RacsorRepository.append(RacsorConfig.SHEETS.RETURN_STATES, RacsorConfig.DEFAULT_STATES);
   }
+  migrateReturnStatesStockPolicy_();
 
   RacsorStockService.ensureStockSheetExists();
   seedDefaultRespUsers_();
@@ -59,11 +60,11 @@ function seedDefaultRespUsers_() {
   var existingUsers = RacsorRepository.getAll(RacsorConfig.SHEETS.USERS);
   var existingByEmail = {};
   existingUsers.forEach(function (user) {
-    existingByEmail[String(user.email || '').toLowerCase()] = true;
+    existingByEmail[RacsorUtils.normalizeEmail(user.email)] = true;
   });
 
   var rowsToInsert = defaultEmails.filter(function (email) {
-    return !existingByEmail[String(email).toLowerCase()];
+    return !existingByEmail[RacsorUtils.normalizeEmail(email)];
   }).map(function (email) {
     return {
       email: email,
@@ -81,12 +82,12 @@ function seedDefaultRespUsers_() {
 }
 
 function seedDemoUsersIfMissing() {
-  var email = Session.getActiveUser().getEmail();
+  var email = RacsorUtils.normalizeEmail(Session.getActiveUser().getEmail());
   if (!email) {
     return 'No active user email available';
   }
   var existing = RacsorRepository.findOneBy(RacsorConfig.SHEETS.USERS, function (user) {
-    return user.email === email;
+    return RacsorUtils.normalizeEmail(user.email) === email;
   });
   if (existing) {
     return 'User already exists';
@@ -153,5 +154,22 @@ function repairMissingCoreData_() {
 
   if (!RacsorRepository.getAll(RacsorConfig.SHEETS.RETURN_STATES).length) {
     RacsorRepository.replaceAll(RacsorConfig.SHEETS.RETURN_STATES, RacsorConfig.DEFAULT_STATES);
+  }
+  migrateReturnStatesStockPolicy_();
+}
+
+function migrateReturnStatesStockPolicy_() {
+  var states = RacsorRepository.getAll(RacsorConfig.SHEETS.RETURN_STATES);
+  var changed = false;
+  var migrated = states.map(function (state) {
+    if (state.reintegrates_stock !== '' && state.reintegrates_stock !== undefined) {
+      return state;
+    }
+    state.reintegrates_stock = String(state.label || '').toLowerCase() !== 'manquant';
+    changed = true;
+    return state;
+  });
+  if (changed) {
+    RacsorRepository.replaceAll(RacsorConfig.SHEETS.RETURN_STATES, migrated);
   }
 }

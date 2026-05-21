@@ -230,7 +230,7 @@ Permet de marquer les retards et d’envoyer les alertes prévues.
 
 ## Notes techniques simples
 
-- le stock repose sur la feuille `Stock_Mouvement`
-- chaque ligne représente une date
-- chaque colonne représente un produit
-- Google Sheets sert de moteur de propagation des stocks
+- le stock V1.1 repose sur la feuille `Stock_Ledger`
+- chaque ligne du ledger est un mouvement append-only
+- `Stock_Mouvement` reste conserve comme onglet de compatibilite/archive
+- les nouvelles versions doivent etre publiees en modifiant le deploiement Apps Script existant pour conserver le meme lien production

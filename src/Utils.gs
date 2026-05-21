@@ -66,6 +66,45 @@ var RacsorUtils = (function () {
     return prefix + '_' + Utilities.getUuid().replace(/-/g, '').slice(0, 12).toUpperCase();
   }
 
+  function normalizeEmail(value) {
+    return String(value || '').trim().toLowerCase();
+  }
+
+  function isTruthy(value) {
+    return value === true || String(value).toLowerCase() === 'true' || String(value) === '1';
+  }
+
+  function withScriptLock(label, callback) {
+    var lock = LockService.getScriptLock();
+    try {
+      lock.waitLock(20000);
+      return callback();
+    } finally {
+      try {
+        lock.releaseLock();
+      } catch (error) {
+      }
+    }
+  }
+
+  function buildAppUrl(params) {
+    var baseUrl = '';
+    try {
+      baseUrl = ScriptApp.getService().getUrl();
+    } catch (error) {
+      baseUrl = '';
+    }
+    if (!baseUrl) {
+      return '';
+    }
+    var query = Object.keys(params || {}).filter(function (key) {
+      return params[key] !== undefined && params[key] !== null && params[key] !== '';
+    }).map(function (key) {
+      return encodeURIComponent(key) + '=' + encodeURIComponent(params[key]);
+    }).join('&');
+    return query ? baseUrl + '?' + query : baseUrl;
+  }
+
   function createContractNumber(existingNumbers) {
     var today = new Date();
     var prefix = Utilities.formatDate(today, Session.getScriptTimeZone(), 'yyMMdd');
@@ -143,6 +182,10 @@ var RacsorUtils = (function () {
     combineDateAndTime: combineDateAndTime,
     isWeekendRule: isWeekendRule,
     createId: createId,
+    normalizeEmail: normalizeEmail,
+    isTruthy: isTruthy,
+    withScriptLock: withScriptLock,
+    buildAppUrl: buildAppUrl,
     createContractNumber: createContractNumber,
     slugifyName: slugifyName,
     mapRows: mapRows,

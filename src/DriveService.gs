@@ -52,6 +52,7 @@ var RacsorDriveService = (function () {
       body.replaceText('{{TOTAL}}', String(transaction.total_amount_ttc) + ' €');
       body.replaceText('{{TOTAL_DEPOSIT_AMOUNT}}', String(transaction.total_deposit_amount) + ' €');
       body.replaceText('{{ITEMS}}', itemLines);
+      appendDriveReturnShortcut_(body, transaction);
       doc.saveAndClose();
       return { id: file.getId(), name: file.getName(), url: file.getUrl() };
     }
@@ -70,7 +71,9 @@ var RacsorDriveService = (function () {
       buildItemLines_(items),
       '',
       'Montant TTC: ' + transaction.total_amount_ttc + ' €',
-      'Caution: ' + transaction.total_deposit_amount + ' €'
+      'Caution: ' + transaction.total_deposit_amount + ' €',
+      '',
+      'Retour DRIVE direct: ' + getDriveReturnUrl_(transaction)
     ].join('\n');
     var blob = Utilities.newBlob(lines, 'text/plain', fileName + '.txt');
     var textFile = folder.createFile(blob);
@@ -188,6 +191,30 @@ var RacsorDriveService = (function () {
     var blob = Utilities.newBlob(lines.join('\n'), 'text/plain', fileName);
     var file = folder.createFile(blob);
     return { id: file.getId(), name: file.getName(), url: file.getUrl() };
+  }
+
+  function appendDriveReturnShortcut_(body, transaction) {
+    var directUrl = getDriveReturnUrl_(transaction);
+    if (!directUrl) {
+      return;
+    }
+    body.appendParagraph('');
+    body.appendParagraph('Retour DRIVE direct').editAsText().setBold(true);
+    body.appendParagraph(directUrl);
+    try {
+      var qrUrl = 'https://chart.googleapis.com/chart?cht=qr&chs=180x180&chl=' + encodeURIComponent(directUrl);
+      var blob = UrlFetchApp.fetch(qrUrl, { muteHttpExceptions: true }).getBlob();
+      body.appendImage(blob).setWidth(120).setHeight(120);
+    } catch (error) {
+      body.appendParagraph('QR code indisponible, utilise le lien ci-dessus.');
+    }
+  }
+
+  function getDriveReturnUrl_(transaction) {
+    return RacsorUtils.buildAppUrl({
+      view: 'drive-return',
+      contract: transaction.contract_number || ''
+    });
   }
 
   function getFolderSafe_(folderId) {

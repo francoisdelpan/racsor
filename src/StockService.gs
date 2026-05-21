@@ -1,4 +1,6 @@
 var RacsorStockService = (function () {
+  var migrationRunning = false;
+
   function getProducts_() {
     return RacsorRepository.getAll(RacsorConfig.SHEETS.PRODUCTS).filter(function (item) {
       return String(item.is_active) !== 'false';
@@ -15,76 +17,38 @@ var RacsorStockService = (function () {
       sheet.getRange(1, 1).setValue('date');
       sheet.setFrozenRows(1);
     }
-    syncProductColumns_();
+    ensureStockLedgerExists();
+    return sheet;
+  }
+
+  function ensureStockLedgerExists() {
+    var sheet = RacsorRepository.ensureSheet(RacsorConfig.SHEETS.STOCK_LEDGER, RacsorConfig.SHEET_HEADERS[RacsorConfig.SHEETS.STOCK_LEDGER]);
+    migrateStockLedgerFromExistingData_();
     return sheet;
   }
 
   function initializeStockBase_(baseDate) {
     var sheet = ensureStockSheetExists();
-    var products = getProducts_();
-    var firstDate = RacsorUtils.toDateOnlyString(baseDate || new Date());
-    syncProductColumns_();
-    if (sheet.getLastRow() < 2) {
-      var firstRow = [firstDate];
-      products.forEach(function (product) {
-        firstRow.push(Number(product.stock_max || 0));
-      });
-      sheet.getRange(2, 1, 1, firstRow.length).setValues([firstRow]);
-    }
+    ensureDatesUntil(baseDate || new Date());
     return sheet;
   }
 
   function syncProductColumns_() {
-    var sheet = RacsorRepository.getSheet(RacsorConfig.SHEETS.STOCK_MOVEMENTS);
-    var products = getProducts_();
-    var lastColumn = Math.max(sheet.getLastColumn(), 1);
-    var headers = sheet.getRange(1, 1, 1, lastColumn).getValues()[0];
-    if (!headers[0]) {
-      headers[0] = 'date';
-      sheet.getRange(1, 1).setValue('date');
-    }
-    var headerMap = {};
-    headers.forEach(function (header, index) {
-      if (header) {
-        headerMap[String(header)] = index + 1;
-      }
-    });
-    var lastRow = sheet.getLastRow();
-    products.forEach(function (product) {
-      if (headerMap[product.id]) {
-        return;
-      }
-      var newColumn = sheet.getLastColumn() + 1;
-      sheet.getRange(1, newColumn).setValue(product.id);
-      if (lastRow >= 2) {
-        sheet.getRange(2, newColumn).setValue(Number(product.stock_max || 0));
-      }
-      if (lastRow >= 3) {
-        var formulas = [];
-        for (var row = 3; row <= lastRow; row += 1) {
-          formulas.push(['=' + getCellA1_(row - 1, newColumn)]);
-        }
-        sheet.getRange(3, newColumn, formulas.length, 1).setFormulas(formulas);
-      }
-    });
-    return getProductColumnMap_(sheet);
+    return {};
   }
 
   function ensureDatesUntil(targetDate) {
-    var sheet = ensureStockSheetExists();
-    var normalizedTargetDate = RacsorUtils.toDateOnlyString(targetDate);
-    initializeStockBase_(normalizedTargetDate);
+    var sheet = RacsorRepository.ensureSheet(RacsorConfig.SHEETS.STOCK_MOVEMENTS, ['date']);
+    var normalizedTargetDate = RacsorUtils.toDateOnlyString(targetDate || new Date());
     var dates = getSheetDates_(sheet);
     var lastKnownDate = dates.length ? dates[dates.length - 1] : '';
     if (!lastKnownDate) {
+      sheet.getRange(2, 1).setValue(normalizedTargetDate);
       return sheet;
     }
     if (lastKnownDate >= normalizedTargetDate) {
       return sheet;
     }
-
-    var productColumnMap = getProductColumnMap_(sheet);
-    var productIds = Object.keys(productColumnMap);
     var currentDate = RacsorUtils.parseDate(lastKnownDate);
     var target = RacsorUtils.parseDate(normalizedTargetDate);
     var rows = [];
@@ -92,58 +56,59 @@ var RacsorStockService = (function () {
       currentDate.setDate(currentDate.getDate() + 1);
       rows.push([RacsorUtils.toDateOnlyString(currentDate)]);
     }
-    if (!rows.length) {
-      return sheet;
+    if (rows.length) {
+      sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, 1).setValues(rows);
     }
-
-    var startRow = sheet.getLastRow() + 1;
-    sheet.getRange(startRow, 1, rows.length, 1).setValues(rows);
-    productIds.forEach(function (productId) {
-      var column = productColumnMap[productId];
-      var formulas = [];
-      for (var index = 0; index < rows.length; index += 1) {
-        var rowNumber = startRow + index;
-        formulas.push(['=' + getCellA1_(rowNumber - 1, column)]);
-      }
-      sheet.getRange(startRow, column, formulas.length, 1).setFormulas(formulas);
-    });
     return sheet;
   }
 
   function getDateRow(dateString) {
     var normalizedDate = RacsorUtils.toDateOnlyString(dateString);
-    var row = getStockContext_(dateString).rowByDate[normalizedDate];
-    if (!row) {
-      throw new Error('Date de stock introuvable: ' + normalizedDate);
+    var sheet = ensureDatesUntil(normalizedDate);
+    var dates = getSheetDates_(sheet);
+    for (var index = 0; index < dates.length; index += 1) {
+      if (dates[index] === normalizedDate) {
+        return index + 2;
+      }
     }
-    return row;
+    throw new Error('Date de stock introuvable: ' + normalizedDate);
   }
 
   function getProductColumn(productId) {
-    var column = getStockContext_().productColumnMap[productId];
-    if (!column) {
-      throw new Error('Produit introuvable dans Stock_Mouvement: ' + productId);
+    var products = getProducts_();
+    for (var index = 0; index < products.length; index += 1) {
+      if (products[index].id === productId) {
+        return index + 2;
+      }
     }
-    return column;
+    throw new Error('Produit introuvable: ' + productId);
   }
 
-  function applyStockOut(items, pickupDate) {
-    applyStockDelta_(items, pickupDate, -1);
+  function applyStockOut(items, pickupDate, transactionId, note) {
+    applyStockDelta_(items, pickupDate, -1, transactionId, 'reservation', note || '');
   }
 
-  function applyStockIn(items, returnDate) {
-    applyStockDelta_(items, returnDate, 1);
+  function applyStockIn(items, returnDate, transactionId, movementType, note) {
+    applyStockDelta_(items, returnDate, 1, transactionId, movementType || 'return', note || '');
   }
 
   function applyInventoryOverride(payload) {
-    var context = getStockContext_(payload.movement_date);
-    var sheet = context.sheet;
-    var row = context.rowByDate[RacsorUtils.toDateOnlyString(payload.movement_date)];
-    var column = context.productColumnMap[payload.product_id];
-    var cell = sheet.getRange(row, column);
-    cell.setFormula('');
-    cell.setValue(Number(payload.quantity || 0));
-    cell.setFontWeight('bold');
+    var snapshot = getStockSnapshot(payload.movement_date);
+    var current = 0;
+    snapshot.forEach(function (item) {
+      if (item.product_id === payload.product_id) {
+        current = Number(item.available || 0);
+      }
+    });
+    var delta = Number(payload.quantity || 0) - current;
+    appendLedgerRows_([{
+      movement_date: payload.movement_date,
+      product_id: payload.product_id,
+      transaction_id: '',
+      movement_type: 'manual_adjustment',
+      quantity_delta: delta,
+      note: 'Inventaire manuel'
+    }]);
   }
 
   function recordInventory(payload) {
@@ -152,32 +117,33 @@ var RacsorStockService = (function () {
   }
 
   function recordInventoryBulk(payload) {
-    var context = getStockContext_(payload.movement_date);
-    var sheet = context.sheet;
-    var row = context.rowByDate[RacsorUtils.toDateOnlyString(payload.movement_date)];
-    (payload.items || []).forEach(function (item) {
-      var column = context.productColumnMap[item.product_id];
-      if (!column) {
-        return;
-      }
-      var cell = sheet.getRange(row, column);
-      cell.setFormula('');
-      cell.setValue(Number(item.quantity || 0));
-      cell.setFontWeight('bold');
+    var date = payload.movement_date;
+    var snapshot = getStockSnapshot(date);
+    var currentByProduct = {};
+    snapshot.forEach(function (item) {
+      currentByProduct[item.product_id] = Number(item.available || 0);
     });
+    var rows = [];
+    (payload.items || []).forEach(function (item) {
+      var delta = Number(item.quantity || 0) - Number(currentByProduct[item.product_id] || 0);
+      rows.push({
+        movement_date: date,
+        product_id: item.product_id,
+        transaction_id: '',
+        movement_type: 'manual_adjustment',
+        quantity_delta: delta,
+        note: 'Inventaire manuel'
+      });
+    });
+    appendLedgerRows_(rows);
     return { ok: true };
   }
 
   function getMinimumAvailableStock(productId, pickupDate, returnDate) {
-    var context = getStockContext_(returnDate);
-    var sheet = context.sheet;
-    var startRow = context.rowByDate[RacsorUtils.toDateOnlyString(pickupDate)];
-    var endRow = context.rowByDate[RacsorUtils.toDateOnlyString(returnDate)];
-    var column = context.productColumnMap[productId];
-    var values = sheet.getRange(startRow, column, endRow - startRow + 1, 1).getValues();
+    var values = getAvailabilityByDate_(pickupDate, returnDate, [productId]);
     var minValue = null;
     values.forEach(function (row) {
-      var value = Number(row[0] || 0);
+      var value = Number(row.products[productId] || 0);
       minValue = minValue === null ? value : Math.min(minValue, value);
     });
     return minValue === null ? 0 : minValue;
@@ -185,8 +151,19 @@ var RacsorStockService = (function () {
 
   function assertAvailabilityOrThrow(items, pickupDate, returnDate) {
     var errors = [];
+    var productIds = (items || []).map(function (item) {
+      return item.product_id;
+    });
+    var rows = getAvailabilityByDate_(pickupDate, returnDate, productIds);
+    var minByProduct = {};
+    rows.forEach(function (row) {
+      productIds.forEach(function (productId) {
+        var value = Number(row.products[productId] || 0);
+        minByProduct[productId] = minByProduct[productId] === undefined ? value : Math.min(minByProduct[productId], value);
+      });
+    });
     (items || []).forEach(function (item) {
-      var available = getMinimumAvailableStock(item.product_id, pickupDate, returnDate);
+      var available = Number(minByProduct[item.product_id] || 0);
       var requested = Number(item.quantity || 0);
       if (available < requested) {
         errors.push(findProductName_(item.product_id) + ' disponible ' + available + ' / demande ' + requested);
@@ -198,28 +175,33 @@ var RacsorStockService = (function () {
   }
 
   function getStockSnapshot(dateString) {
-    var context = getStockContext_(dateString);
-    var sheet = context.sheet;
-    var row = context.rowByDate[RacsorUtils.toDateOnlyString(dateString)];
+    var normalizedDate = RacsorUtils.toDateOnlyString(dateString || new Date());
     var products = getProducts_();
-    var rowValues = sheet.getRange(row, 1, 1, context.lastColumn).getValues()[0];
+    var productIds = products.map(function (product) {
+      return product.id;
+    });
+    var snapshots = computeSnapshotsForDates_([normalizedDate], productIds);
+    var values = snapshots[normalizedDate] || {};
     return products.map(function (product) {
-      var column = context.productColumnMap[product.id];
       return {
         product_id: product.id,
         product_name: product.name,
-        available: column ? Number(rowValues[column - 1] || 0) : 0
+        available: Number(values[product.id] || 0)
       };
     });
   }
 
   function getStockLedger(productId, startDate, days) {
     var matrix = getStockMatrix(startDate, days);
+    var movements = getLedgerMovements_().filter(function (row) {
+      return row.product_id === productId;
+    });
+    var movementsByDate = RacsorUtils.groupBy(movements, 'movement_date');
     return matrix.rows.map(function (row) {
       return {
         date: row.date,
         available: Number(row.products[productId] || 0),
-        movements: []
+        movements: movementsByDate[row.date] || []
       };
     });
   }
@@ -228,30 +210,20 @@ var RacsorStockService = (function () {
     if (!pickupDate || !returnDate) {
       return [];
     }
-    var context = getStockContext_(returnDate);
     var products = getProducts_();
-    var startRow = context.rowByDate[RacsorUtils.toDateOnlyString(pickupDate)];
-    var endRow = context.rowByDate[RacsorUtils.toDateOnlyString(returnDate)];
-    var height = endRow - startRow + 1;
-    var ranges = [];
-    products.forEach(function (product) {
-      var column = context.productColumnMap[product.id];
-      if (column) {
-        ranges.push({
-          product: product,
-          values: context.sheet.getRange(startRow, column, height, 1).getValues()
-        });
-      }
+    var productIds = products.map(function (product) {
+      return product.id;
     });
-    return ranges.map(function (entry) {
+    var rows = getAvailabilityByDate_(pickupDate, returnDate, productIds);
+    return products.map(function (product) {
       var minValue = null;
-      entry.values.forEach(function (row) {
-        var value = Number(row[0] || 0);
+      rows.forEach(function (row) {
+        var value = Number(row.products[product.id] || 0);
         minValue = minValue === null ? value : Math.min(minValue, value);
       });
       return {
-        product_id: entry.product.id,
-        product_name: entry.product.name,
+        product_id: product.id,
+        product_name: product.name,
         available: minValue === null ? 0 : minValue
       };
     });
@@ -263,37 +235,15 @@ var RacsorStockService = (function () {
     var end = new Date(start.getTime());
     end.setDate(end.getDate() + Number(days || 0) - 1);
     var endDate = RacsorUtils.toDateOnlyString(end);
-    var context = getStockContext_(endDate);
-    var sheet = context.sheet;
-    var startRow = context.rowByDate[normalizedStartDate];
-    var endRow = context.rowByDate[endDate];
     var products = getProducts_();
-    var values = sheet.getRange(startRow, 1, endRow - startRow + 1, context.lastColumn).getValues();
-    var rows = [];
-
-    for (var index = 0; index < values.length; index += 1) {
-      var rowValues = values[index];
-      var dateValue = rowValues[0];
-      var dateString = RacsorUtils.toDateOnlyString(dateValue);
-      var dateObject = RacsorUtils.parseDate(dateString);
-      var row = {
-        date: dateString,
-        is_monday: dateObject.getDay() === 1,
-        is_first_of_month: dateObject.getDate() === 1,
-        products: {}
-      };
-      products.forEach(function (product) {
-        var column = context.productColumnMap[product.id];
-        row.products[product.id] = column ? Number(rowValues[column - 1] || 0) : 0;
-      });
-      rows.push(row);
-    }
-
+    var productIds = products.map(function (product) {
+      return product.id;
+    });
     return {
       products: products.map(function (product) {
         return { product_id: product.id, product_name: product.name };
       }),
-      rows: rows
+      rows: getAvailabilityByDate_(normalizedStartDate, endDate, productIds)
     };
   }
 
@@ -305,7 +255,7 @@ var RacsorStockService = (function () {
   }
 
   function getStockSetupSummary() {
-    var sheet = ensureStockSheetExists();
+    var sheet = ensureStockLedgerExists();
     return {
       sheetName: sheet.getName(),
       lastRow: sheet.getLastRow(),
@@ -313,77 +263,192 @@ var RacsorStockService = (function () {
     };
   }
 
-  function applyStockDelta_(items, dateString, sign) {
-    var context = getStockContext_(dateString);
-    var grouped = {};
+  function applyStockDelta_(items, dateString, sign, transactionId, movementType, note) {
+    var rows = [];
     (items || []).forEach(function (item) {
-      var productId = item.product_id;
-      grouped[productId] = Number(grouped[productId] || 0) + (Number(item.quantity || 0) * sign);
+      var quantity = Number(item.quantity || 0);
+      if (!quantity) {
+        return;
+      }
+      rows.push({
+        movement_date: dateString,
+        product_id: item.product_id,
+        transaction_id: transactionId || '',
+        movement_type: movementType || (sign < 0 ? 'reservation' : 'return'),
+        quantity_delta: quantity * sign,
+        note: note || ''
+      });
     });
-    Object.keys(grouped).forEach(function (productId) {
-      applyDeltaForProduct_(context, dateString, productId, grouped[productId]);
+    appendLedgerRows_(rows);
+  }
+
+  function appendLedgerRows_(rows) {
+    ensureStockLedgerExists();
+    var records = (rows || []).filter(function (row) {
+      return Number(row.quantity_delta || 0) !== 0;
+    }).map(function (row) {
+      return {
+        id: RacsorUtils.createId('STK'),
+        movement_date: RacsorUtils.toDateOnlyString(row.movement_date || new Date()),
+        product_id: row.product_id || '',
+        transaction_id: row.transaction_id || '',
+        movement_type: row.movement_type || '',
+        quantity_delta: Number(row.quantity_delta || 0),
+        note: row.note || '',
+        created_at: RacsorUtils.nowIso()
+      };
+    });
+    if (records.length) {
+      RacsorRepository.append(RacsorConfig.SHEETS.STOCK_LEDGER, records);
+    }
+  }
+
+  function getAvailabilityByDate_(startDate, endDate, productIds) {
+    var dates = RacsorUtils.enumerateDateStrings(startDate, endDate);
+    var snapshots = computeSnapshotsForDates_(dates, productIds);
+    return dates.map(function (dateString) {
+      var dateObject = RacsorUtils.parseDate(dateString);
+      return {
+        date: dateString,
+        is_monday: dateObject.getDay() === 1,
+        is_first_of_month: dateObject.getDate() === 1,
+        products: snapshots[dateString] || {}
+      };
     });
   }
 
-  function applyDeltaForProduct_(context, dateString, productId, delta) {
-    if (!delta) {
+  function computeSnapshotsForDates_(dates, productIds) {
+    ensureStockLedgerExists();
+    var baseByProduct = getProductBaseMap_();
+    var wanted = {};
+    (productIds || Object.keys(baseByProduct)).forEach(function (productId) {
+      wanted[productId] = true;
+    });
+    var sortedDates = dates.slice().sort();
+    var movements = getLedgerMovements_().filter(function (row) {
+      return wanted[row.product_id];
+    }).sort(function (a, b) {
+      return String(a.movement_date).localeCompare(String(b.movement_date));
+    });
+    var current = {};
+    Object.keys(wanted).forEach(function (productId) {
+      current[productId] = Number(baseByProduct[productId] || 0);
+    });
+    var snapshots = {};
+    var movementIndex = 0;
+    sortedDates.forEach(function (dateString) {
+      while (movementIndex < movements.length && String(movements[movementIndex].movement_date) <= dateString) {
+        var movement = movements[movementIndex];
+        current[movement.product_id] = Number(current[movement.product_id] || 0) + Number(movement.quantity_delta || 0);
+        movementIndex += 1;
+      }
+      snapshots[dateString] = {};
+      Object.keys(wanted).forEach(function (productId) {
+        snapshots[dateString][productId] = Number(current[productId] || 0);
+      });
+    });
+    return snapshots;
+  }
+
+  function getProductBaseMap_() {
+    var map = {};
+    getProducts_().forEach(function (product) {
+      map[product.id] = Number(product.stock_max || 0);
+    });
+    return map;
+  }
+
+  function getLedgerMovements_() {
+    ensureStockLedgerExists();
+    return RacsorRepository.getAll(RacsorConfig.SHEETS.STOCK_LEDGER).map(function (row) {
+      row.movement_date = RacsorUtils.toDateOnlyString(row.movement_date);
+      row.quantity_delta = Number(row.quantity_delta || 0);
+      return row;
+    });
+  }
+
+  function migrateStockLedgerFromExistingData_() {
+    if (migrationRunning) {
       return;
     }
-    var sheet = context.sheet;
-    var row = context.rowByDate[RacsorUtils.toDateOnlyString(dateString)];
-    var column = context.productColumnMap[productId];
-    var cell = sheet.getRange(row, column);
-    var formula = String(cell.getFormula() || '');
-    var signedDelta = delta >= 0 ? '+' + delta : String(delta);
-    if (formula) {
-      cell.setFormula(formula + signedDelta);
-    } else {
-      var currentValue = Number(cell.getValue() || 0);
-      cell.setFormula('=' + currentValue + signedDelta);
-      cell.setFontWeight('normal');
+    var sheet = RacsorRepository.getSheet(RacsorConfig.SHEETS.STOCK_LEDGER);
+    if (sheet.getLastRow() > 1) {
+      return;
     }
-  }
-
-  function getProductColumnMap_(sheet) {
-    var lastColumn = Math.max(sheet.getLastColumn(), 1);
-    var headers = sheet.getRange(1, 1, 1, lastColumn).getValues()[0];
-    return getProductColumnMapFromHeaders_(headers);
-  }
-
-  function getStockContext_(targetDate) {
-    if (targetDate) {
-      ensureDatesUntil(targetDate);
-    } else {
-      ensureStockSheetExists();
-    }
-    var sheet = RacsorRepository.getSheet(RacsorConfig.SHEETS.STOCK_MOVEMENTS);
-    var lastRow = sheet.getLastRow();
-    var lastColumn = Math.max(sheet.getLastColumn(), 1);
-    var headers = sheet.getRange(1, 1, 1, lastColumn).getValues()[0];
-    var dates = lastRow >= 2 ? sheet.getRange(2, 1, lastRow - 1, 1).getValues() : [];
-    var rowByDate = {};
-    dates.forEach(function (row, index) {
-      if (row[0]) {
-        rowByDate[RacsorUtils.toDateOnlyString(row[0])] = index + 2;
+    migrationRunning = true;
+    try {
+      var transactions = RacsorRepository.getAll(RacsorConfig.SHEETS.TRANSACTIONS);
+      if (!transactions.length) {
+        return;
       }
+      var items = RacsorRepository.getAll(RacsorConfig.SHEETS.TRANSACTION_ITEMS);
+      var itemsByTransaction = RacsorUtils.groupBy(items, 'transaction_id');
+      var stateReintegration = getReturnStateReintegrationMap_();
+      var rows = [];
+      transactions.forEach(function (transaction) {
+        var status = String(transaction.status || '');
+        var transactionItems = itemsByTransaction[transaction.id] || [];
+        if (!transactionItems.length || status === 'cancelled' || !transaction.pickup_date) {
+          return;
+        }
+        transactionItems.forEach(function (item) {
+          rows.push({
+            movement_date: transaction.pickup_date,
+            product_id: item.product_id,
+            transaction_id: transaction.id,
+            movement_type: 'migration_reservation',
+            quantity_delta: -Number(item.quantity || 0),
+            note: 'Migration depuis Transactions'
+          });
+        });
+        if (transaction.return_date && ['returned', 'incident', 'ready_to_close', 'closed'].indexOf(status) !== -1) {
+          var returnedByProduct = getReintegratedReturnQuantities_(transaction, transactionItems, stateReintegration);
+          Object.keys(returnedByProduct).forEach(function (productId) {
+            rows.push({
+              movement_date: transaction.return_date,
+              product_id: productId,
+              transaction_id: transaction.id,
+              movement_type: 'migration_return',
+              quantity_delta: Number(returnedByProduct[productId] || 0),
+              note: 'Migration depuis retour contrat'
+            });
+          });
+        }
+      });
+      if (rows.length) {
+        appendLedgerRows_(rows);
+      }
+    } finally {
+      migrationRunning = false;
+    }
+  }
+
+  function getReintegratedReturnQuantities_(transaction, transactionItems, stateReintegration) {
+    var returns = RacsorUtils.safeJsonParse(transaction.return_details_json || '[]', []);
+    var quantities = {};
+    if (returns.length) {
+      returns.forEach(function (entry) {
+        if (stateReintegration[entry.state_id] === false) {
+          return;
+        }
+        quantities[entry.product_id] = Number(quantities[entry.product_id] || 0) + Number(entry.quantity || 0);
+      });
+      return quantities;
+    }
+    transactionItems.forEach(function (item) {
+      quantities[item.product_id] = Number(item.quantity || 0);
     });
-    return {
-      sheet: sheet,
-      lastRow: lastRow,
-      lastColumn: lastColumn,
-      headers: headers,
-      productColumnMap: getProductColumnMapFromHeaders_(headers),
-      rowByDate: rowByDate
-    };
+    return quantities;
   }
 
-  function getProductColumnMapFromHeaders_(headers) {
+  function getReturnStateReintegrationMap_() {
     var map = {};
-    for (var index = 1; index < headers.length; index += 1) {
-      if (headers[index]) {
-        map[String(headers[index])] = index + 1;
-      }
-    }
+    RacsorRepository.getAll(RacsorConfig.SHEETS.RETURN_STATES).forEach(function (state) {
+      var label = String(state.label || '').toLowerCase();
+      map[state.id] = state.reintegrates_stock === '' || state.reintegrates_stock === undefined
+        ? label !== 'manquant'
+        : RacsorUtils.isTruthy(state.reintegrates_stock);
+    });
     return map;
   }
 
@@ -397,21 +462,6 @@ var RacsorStockService = (function () {
     }).filter(Boolean);
   }
 
-  function getCellA1_(row, column) {
-    return columnToLetter_(column) + row;
-  }
-
-  function columnToLetter_(column) {
-    var letter = '';
-    var current = column;
-    while (current > 0) {
-      var remainder = (current - 1) % 26;
-      letter = String.fromCharCode(65 + remainder) + letter;
-      current = Math.floor((current - 1) / 26);
-    }
-    return letter;
-  }
-
   function findProductName_(productId) {
     var product = getProducts_().find(function (item) {
       return item.id === productId;
@@ -421,7 +471,9 @@ var RacsorStockService = (function () {
 
   return {
     ensureStockSheetExists: ensureStockSheetExists,
+    ensureStockLedgerExists: ensureStockLedgerExists,
     initializeStockBase_: initializeStockBase_,
+    syncProductColumns_: syncProductColumns_,
     ensureDatesUntil: ensureDatesUntil,
     getDateRow: getDateRow,
     getProductColumn: getProductColumn,

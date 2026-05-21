@@ -23,7 +23,8 @@
     viewLoadToken: 0,
     adminSection: 'products',
     adminDataLoaded: false,
-    forceOverrideDraft: null
+    forceOverrideDraft: null,
+    initialParamsApplied: false
   };
 
   function runServer(fnName, ...args) {
@@ -62,6 +63,11 @@
     state.bootstrap.dashboard = Object.assign({ today: '', stock: [], pickups: [], returns: [], incidents: [], late: [], stockAlerts: [], recentContracts: [], closedContracts: [], pickupsTodayCount: 0, returnsTodayCount: 0, pickupsFutureCount: 0, returnsFutureCount: 0 }, state.bootstrap.dashboard || {});
     state.bootstrap.settings = state.bootstrap.settings || {};
     render();
+    if (state.bootstrap.user.role === 'NO_ACCESS') {
+      setStatus('Acces Racsor non autorise pour ce compte.');
+      return;
+    }
+    await applyInitialParams();
     setStatus('Application prete.');
   }
 
@@ -194,6 +200,10 @@
       `;
       return;
     }
+    if (state.bootstrap.user.role === 'NO_ACCESS') {
+      app.innerHTML = renderNoAccessView();
+      return;
+    }
     const user = state.bootstrap.user;
     const logo = state.bootstrap.settings.logoUrl
       ? `<img class="brand-logo-image" src="${escapeHtml(state.bootstrap.settings.logoUrl)}" alt="Logo Carrefour">`
@@ -238,6 +248,30 @@
     if (state.currentView === 'drive-return' && state.driveReturnContract) {
       initializeReturnForm();
     }
+  }
+
+  function renderNoAccessView() {
+    const user = state.bootstrap.user || {};
+    const reasonMap = {
+      EMAIL_UNAVAILABLE: 'Google ne transmet pas ton email a la WebApp.',
+      USER_NOT_DECLARED: 'Ton email n existe pas encore dans la table Users.',
+      USER_INACTIVE: 'Ton utilisateur existe mais il est desactive.'
+    };
+    return `
+      <div class="shell no-access-shell">
+        <main class="content">
+          <section class="panel no-access-card">
+            <div class="panel-title"><h2>Acces Racsor a valider</h2></div>
+            <p class="muted">${escapeHtml(reasonMap[user.reason] || 'Ton compte ne peut pas encore acceder a Racsor.')}</p>
+            <div class="diagnostic-card">
+              <strong>Email detecte</strong>
+              <span>${escapeHtml(user.email || 'Non transmis par Google Workspace')}</span>
+            </div>
+            <p>Demande a un responsable Racsor de t ajouter comme utilisateur actif, puis recharge cette page.</p>
+          </section>
+        </main>
+      </div>
+    `;
   }
 
   function renderSidebar() {
@@ -511,6 +545,13 @@
     `;
   }
 
+  function getEditableContractDraft() {
+    if (!state.currentContract || !state.currentContract.transaction) {
+      return null;
+    }
+    return ['draft', 'signed'].includes(state.currentContract.transaction.status) ? state.currentContract : null;
+  }
+
   function renderRecentContractsTable(items) {
     if (!items.length) {
       return '<p class="muted">Aucun contrat a afficher.</p>';
@@ -518,7 +559,7 @@
     return `
       <table>
         <thead>
-          <tr><th>Contrat</th><th>Client</th><th>Contact</th><th>Statut</th><th></th></tr>
+          <tr><th>Contrat</th><th>Client</th><th>Contact</th><th>Statut</th><th>Assets</th><th></th></tr>
         </thead>
         <tbody>
           ${items.map(item => `
@@ -527,9 +568,12 @@
               <td>${escapeHtml(item.client_full_name)}</td>
               <td>${escapeHtml([normalizePhoneDisplay(item.client_phone), item.client_email].filter(Boolean).join(' / ') || '-')}</td>
               <td><span class="tag tag-${escapeHtml(item.status)}">${escapeHtml(formatContractStatusLabel(item.status))}</span></td>
+              <td>${renderAssetStatus(item)}</td>
               <td>
                 <div class="inline-actions">
                   ${item.drive_folder_url ? `<a class="button button-secondary" href="${escapeHtml(item.drive_folder_url)}" target="_blank">Dossier</a>` : ''}
+                  ${['draft', 'signed'].includes(item.status) ? `<button class="button button-secondary" onclick="editContractFromDashboard('${item.id}')">Modifier</button>` : ''}
+                  ${['pending', 'error', 'generating'].includes(getAssetStatus(item)) && ['draft', 'signed'].includes(item.status) ? `<button class="button button-secondary" onclick="prepareContractAssetsFromDashboard('${item.id}')">Preparer</button>` : ''}
                   ${item.status === 'draft' ? `<button class="button button-accent" onclick="triggerDashboardSignedUpload('${item.id}')">Televerser signe</button>` : ''}
                   ${item.status === 'draft' ? `<button class="button button-secondary" onclick="forceDashboardSigned('${item.id}')">Forcer SIGNED</button>` : ''}
                   ${item.status === 'ready_to_close' ? `<button class="button button-primary" onclick="closeDashboardContract('${item.id}')">Cloturer</button>` : ''}
@@ -547,23 +591,26 @@
 
   function renderNewContractView() {
     const datesSelected = hasContractDatesSelected();
+    const draft = getEditableContractDraft();
+    const editTransaction = draft ? draft.transaction : {};
+    const isEditing = Boolean(draft);
     return `
       <section class="panel">
         <div class="panel-title">
-          <h2>Nouvelle location</h2>
+          <h2>${isEditing ? 'Modifier la location' : 'Nouvelle location'}</h2>
         </div>
         <form id="contract-form" onsubmit="event.preventDefault(); submitContractForm();">
           <div class="form-grid">
-            <div class="field"><label>Prenom client</label><input name="client_first_name" required></div>
-            <div class="field"><label>Nom client</label><input name="client_last_name" required></div>
-            <div class="field field-full"><label>Adresse client</label><input name="client_address"></div>
-            <div class="field field-full"><label>Code postal / Ville</label><input name="client_zipcity"></div>
-            <div class="field"><label>Telephone</label><input name="client_phone"></div>
-            <div class="field"><label>Email</label><input name="client_email" type="email"></div>
-            <div class="field"><label>Date retrait</label><input name="pickup_date" type="date" required onchange="refreshPeriodAvailability()"></div>
-            <div class="field"><label>Heure retrait</label><input name="pickup_hour" type="time" value="09:00" required></div>
-            <div class="field"><label>Date retour</label><input name="return_date" type="date" required onchange="refreshPeriodAvailability()"></div>
-            <div class="field"><label>Heure retour</label><input name="return_hour" type="time" value="09:00" required></div>
+            <div class="field"><label>Prenom client</label><input name="client_first_name" value="${escapeHtml(editTransaction.client_first_name || '')}" required></div>
+            <div class="field"><label>Nom client</label><input name="client_last_name" value="${escapeHtml(editTransaction.client_last_name || '')}" required></div>
+            <div class="field field-full"><label>Adresse client</label><input name="client_address" value="${escapeHtml(editTransaction.client_address || '')}"></div>
+            <div class="field field-full"><label>Code postal / Ville</label><input name="client_zipcity" value="${escapeHtml(editTransaction.client_zipcity || '')}"></div>
+            <div class="field"><label>Telephone</label><input name="client_phone" value="${escapeHtml(editTransaction.client_phone || '')}"></div>
+            <div class="field"><label>Email</label><input name="client_email" type="email" value="${escapeHtml(editTransaction.client_email || '')}"></div>
+            <div class="field"><label>Date retrait</label><input name="pickup_date" type="date" value="${escapeHtml(editTransaction.pickup_date || '')}" required onchange="refreshPeriodAvailability()"></div>
+            <div class="field"><label>Heure retrait</label><input name="pickup_hour" type="time" value="${escapeHtml(editTransaction.pickup_hour || '09:00')}" required></div>
+            <div class="field"><label>Date retour</label><input name="return_date" type="date" value="${escapeHtml(editTransaction.return_date || '')}" required onchange="refreshPeriodAvailability()"></div>
+            <div class="field"><label>Heure retour</label><input name="return_hour" type="time" value="${escapeHtml(editTransaction.return_hour || '09:00')}" required></div>
             <div class="field field-full">
               <label>Produits</label>
               <div id="contract-items">${renderContractProductsTable()}</div>
@@ -571,8 +618,9 @@
           </div>
           <div class="quote-box" id="quote-preview">${renderQuotePreview('', datesSelected)}</div>
           <div class="button-row" style="margin-top:16px;">
-            <button id="create-contract-button" type="submit" class="button button-primary" ${datesSelected ? '' : 'disabled'}>Creer le contrat</button>
-            <button id="force-contract-button" type="button" class="button button-danger" onclick="openForceContractModal()" ${datesSelected ? '' : 'disabled'}>Forcer le contrat</button>
+            <button id="create-contract-button" type="submit" class="button button-primary" ${datesSelected ? '' : 'disabled'}>${isEditing ? 'Mettre a jour le contrat' : 'Creer le contrat'}</button>
+            ${isEditing ? '' : `<button id="force-contract-button" type="button" class="button button-danger" onclick="openForceContractModal()" ${datesSelected ? '' : 'disabled'}>Forcer le contrat</button>`}
+            ${isEditing ? `<button type="button" class="button button-secondary" onclick="clearCurrentContractEdit()">Quitter la modification</button>` : ''}
           </div>
         </form>
       </section>
@@ -623,6 +671,8 @@
   function renderContractProductsTable() {
     const datesSelected = hasContractDatesSelected();
     const availabilityByProduct = Object.fromEntries((state.periodAvailability || []).map(item => [item.product_id, Number(item.available || 0)]));
+    const draft = getEditableContractDraft();
+    const quantityByProduct = Object.fromEntries(((draft && draft.items) || []).map(item => [item.product_id, Number(item.quantity || 0)]));
     return `
       <table class="admin-table">
         <thead><tr><th>Produit</th><th>Stock disponible</th><th>Quantite</th></tr></thead>
@@ -633,7 +683,7 @@
               <tr>
                 <td>${escapeHtml(item.name)}</td>
                 <td><input class="stock-inline-input" type="number" value="${available}" disabled placeholder="-"></td>
-                <td><input data-contract-product="${item.id}" type="number" min="0" ${datesSelected ? '' : 'disabled'} value="0" oninput="clampContractQuantity('${item.id}')"></td>
+                <td><input data-contract-product="${item.id}" type="number" min="0" ${datesSelected ? '' : 'disabled'} value="${quantityByProduct[item.id] || 0}" oninput="clampContractQuantity('${item.id}')"></td>
               </tr>
             `;
           }).join('')}
@@ -676,12 +726,14 @@
         </div>
         <p><strong>${escapeHtml(transaction.contract_number)}</strong> · ${escapeHtml(transaction.client_full_name)}</p>
         <p class="muted">Montant TTC: ${formatCurrency(transaction.total_amount_ttc)} · Caution: ${formatCurrency(transaction.total_deposit_amount)}</p>
+        <p class="muted">Preparation documents / agenda: ${renderAssetStatus(transaction)}</p>
         <p class="muted">
           ${transaction.drive_folder_url ? `<a href="${escapeHtml(transaction.drive_folder_url)}" target="_blank">Ouvrir le dossier Drive</a>` : 'Dossier Drive non configure'}
           ${transaction.generated_contract_url ? ` · <a href="${escapeHtml(transaction.generated_contract_url)}" target="_blank">Imprimer le contrat</a>` : ''}
           ${transaction.signed_contract_url ? ` · <a href="${escapeHtml(transaction.signed_contract_url)}" target="_blank">Contrat signe</a>` : ''}
         </p>
         <div class="inline-actions">
+          ${['pending', 'error', 'generating'].includes(getAssetStatus(transaction)) ? `<button class="button button-secondary" onclick="prepareCurrentContractAssets()">Preparer documents et agenda</button>` : ''}
           <button class="button button-accent" onclick="document.getElementById('signed-upload').click()">Televerser contrat signe</button>
           <input id="signed-upload" class="hidden" type="file" onchange="uploadSignedContract(event)">
           <button class="button button-secondary" onclick="endContractCreation()">Terminer la creation de contrat</button>
@@ -1115,9 +1167,9 @@
       <div class="panel inset-panel">
         <div class="panel-title"><h3>Etats retour</h3></div>
         <table class="admin-table">
-          <thead><tr><th>Label</th><th>Ordre</th><th>Actif</th></tr></thead>
+          <thead><tr><th>Label</th><th>Ordre</th><th>Actif</th><th>Retour stock</th></tr></thead>
           <tbody>
-            ${ref.returnStates.map(item => `<tr><td>${escapeHtml(formatStateLabel(item.label))}</td><td>${item.sort_order}</td><td>${String(item.is_active)}</td></tr>`).join('')}
+            ${ref.returnStates.map(item => `<tr><td>${escapeHtml(formatStateLabel(item.label))}</td><td>${item.sort_order}</td><td>${String(item.is_active)}</td><td>${String(item.reintegrates_stock) === 'false' ? 'Non' : 'Oui'}</td></tr>`).join('')}
           </tbody>
         </table>
       </div>
@@ -1141,6 +1193,7 @@
                 <div class="inline-actions">
                   ${item.drive_folder_url ? `<a class="button button-secondary" href="${escapeHtml(item.drive_folder_url)}" target="_blank">Dossier</a>` : ''}
                   ${item.signed_contract_url ? `<a class="button button-secondary" href="${escapeHtml(item.signed_contract_url)}" target="_blank">Contrat signe</a>` : ''}
+                  <button class="button button-danger" onclick="reopenClosedContract('${item.id}')">Decloturer</button>
                 </div>
               </td>
             </tr>
@@ -1194,6 +1247,26 @@
     }
     if (view === 'admin' && !state.adminDataLoaded) {
       await loadAdminData();
+    }
+  }
+
+  async function applyInitialParams() {
+    if (state.initialParamsApplied) {
+      return;
+    }
+    state.initialParamsApplied = true;
+    const params = window.RACSOR_INITIAL_PARAMS || {};
+    const allowedViews = ['dashboard', 'new-contract', 'stock', 'inventory', 'drive-pickup', 'drive-return', 'sav-return', 'admin', 'help'];
+    if (params.view && allowedViews.includes(params.view)) {
+      state.currentView = params.view;
+      render();
+    }
+    if (params.view === 'drive-return') {
+      await loadContractsForView('driveReturnContracts', ['picked_up', 'late', 'incident']);
+    }
+    if (params.contract) {
+      const context = params.view === 'drive-pickup' ? 'pickup' : params.view === 'sav-return' ? 'savReturn' : 'driveReturn';
+      await loadContractForContextByNumber(context, params.contract);
     }
   }
 
@@ -1391,6 +1464,7 @@
 
   async function submitContractForm() {
     const payload = collectContractPayload();
+    const editing = getEditableContractDraft();
     if (!payload.items.length) {
       setStatus('Ajoute au moins une quantite avant de creer le contrat.');
       return;
@@ -1408,15 +1482,15 @@
       setStatus(`Stock insuffisant: ${stockErrors.join(' ; ')}`);
       return;
     }
-    setStatus('Creation du contrat en cours...');
+    setStatus(editing ? 'Mise a jour du contrat en cours...' : 'Creation du contrat en cours...');
     try {
-      state.currentContract = await runServer('apiCreateContract', payload);
-      if (state.currentContract && state.currentContract.transaction && state.currentContract.transaction.generated_contract_url) {
-        window.open(state.currentContract.transaction.generated_contract_url, '_blank', 'noopener');
-      }
+      state.currentContract = editing
+        ? await runServer('apiUpdateContract', Object.assign({}, payload, { transaction_id: editing.transaction.id }))
+        : await runServer('apiCreateContract', payload);
       render();
       refreshDashboard(false).catch(error => setStatus(error.message));
-      setStatus('Contrat cree: ' + state.currentContract.transaction.contract_number);
+      prepareCurrentContractAssets(false);
+      setStatus((editing ? 'Contrat mis a jour: ' : 'Contrat cree: ') + state.currentContract.transaction.contract_number);
     } catch (error) {
       setStatus(error.message);
     }
@@ -1473,12 +1547,10 @@
     setStatus('Creation forcee du contrat en cours...');
     try {
       state.currentContract = await runServer('apiCreateContract', payload);
-      if (state.currentContract && state.currentContract.transaction && state.currentContract.transaction.generated_contract_url) {
-        window.open(state.currentContract.transaction.generated_contract_url, '_blank', 'noopener');
-      }
       state.forceOverrideDraft = null;
       render();
       refreshDashboard(false).catch(error => setStatus(error.message));
+      prepareCurrentContractAssets(false);
       setStatus('Contrat force cree.');
     } catch (error) {
       setStatus(error.message);
@@ -1574,6 +1646,79 @@
     try {
       await runServer('apiForceContractSigned', transactionId);
       await reloadToDashboard('Contrat passe en SIGNED.');
+    } catch (error) {
+      setStatus(error.message);
+    }
+  }
+
+  async function prepareCurrentContractAssets(showLoader = true) {
+    if (!state.currentContract || !state.currentContract.transaction) {
+      return;
+    }
+    const transactionId = state.currentContract.transaction.id;
+    const runner = showLoader ? runServer : runServerBackground;
+    setStatus('Preparation documents et agenda...');
+    try {
+      state.currentContract = await runner('apiPrepareContractAssets', transactionId);
+      render();
+      refreshDashboard(false).catch(error => setStatus(error.message));
+      if (state.currentContract.transaction.generated_contract_url) {
+        window.open(state.currentContract.transaction.generated_contract_url, '_blank', 'noopener');
+      }
+      setStatus('Documents et agenda prets.');
+    } catch (error) {
+      if (state.currentContract && state.currentContract.transaction && state.currentContract.transaction.id === transactionId) {
+        state.currentContract.transaction.asset_generation_status = 'error';
+        state.currentContract.transaction.asset_generation_error = error.message;
+        render();
+      }
+      setStatus(error.message);
+    }
+  }
+
+  async function prepareContractAssetsFromDashboard(transactionId) {
+    setStatus('Preparation documents et agenda...');
+    try {
+      await runServer('apiPrepareContractAssets', transactionId);
+      await refreshDashboard(true);
+      setStatus('Documents et agenda prets.');
+    } catch (error) {
+      await refreshDashboard(true).catch(() => {});
+      setStatus(error.message);
+    }
+  }
+
+  async function editContractFromDashboard(transactionId) {
+    setStatus('Chargement du contrat a modifier...');
+    try {
+      state.currentContract = await runServer('apiGetContractById', transactionId);
+      state.periodAvailability = [];
+      state.periodAvailabilityKey = '';
+      state.currentView = 'new-contract';
+      render();
+      await refreshPeriodAvailability();
+      setStatus('Contrat pret pour modification.');
+    } catch (error) {
+      setStatus(error.message);
+    }
+  }
+
+  function clearCurrentContractEdit() {
+    state.currentContract = null;
+    state.periodAvailability = [];
+    state.periodAvailabilityKey = '';
+    render();
+    setStatus('Modification fermee.');
+  }
+
+  async function reopenClosedContract(transactionId) {
+    const reason = window.prompt('Motif de decloture ?') || '';
+    setStatus('Decloture du dossier...');
+    try {
+      await runServer('apiReopenContract', { transaction_id: transactionId, reason });
+      state.adminDataLoaded = false;
+      await loadAdminData();
+      setStatus('Dossier decloture.');
     } catch (error) {
       setStatus(error.message);
     }
@@ -2009,6 +2154,24 @@
       'cancelled': 'Annule'
     };
     return map[String(value || '').toLowerCase()] || value;
+  }
+
+  function renderAssetStatus(transaction) {
+    const status = getAssetStatus(transaction);
+    const labelMap = {
+      pending: 'A preparer',
+      generating: 'Preparation...',
+      ready: 'Pret',
+      error: 'Erreur',
+      cancelled: 'Annule'
+    };
+    const css = status === 'ready' ? 'tag-returned' : status === 'error' ? 'tag-incident' : status === 'cancelled' ? 'tag-cancelled' : 'tag-draft';
+    const error = transaction.asset_generation_error ? ` · ${escapeHtml(transaction.asset_generation_error)}` : '';
+    return `<span class="tag ${css}">${escapeHtml(labelMap[status] || status)}</span>${error ? `<span class="muted asset-error">${error}</span>` : ''}`;
+  }
+
+  function getAssetStatus(transaction) {
+    return String(transaction.asset_generation_status || (transaction.generated_contract_file_id ? 'ready' : 'pending'));
   }
 
   function escapeHtml(value) {

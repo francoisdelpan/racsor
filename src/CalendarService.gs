@@ -43,7 +43,32 @@ var RacsorCalendarService = (function () {
     };
   }
 
+  function deleteEventSafe(eventId) {
+    var calendar = getCalendar();
+    if (!calendar || !eventId) {
+      return false;
+    }
+    try {
+      var event = calendar.getEventById(eventId);
+      if (event) {
+        event.deleteEvent();
+        return true;
+      }
+    } catch (error) {
+    }
+    return false;
+  }
+
+  function deleteContractEvents(transaction) {
+    return {
+      pickupDeleted: deleteEventSafe(transaction.pickup_calendar_event_id),
+      returnDeleted: deleteEventSafe(transaction.return_calendar_event_id)
+    };
+  }
+
   return {
-    createContractEvents: createContractEvents
+    createContractEvents: createContractEvents,
+    deleteEventSafe: deleteEventSafe,
+    deleteContractEvents: deleteContractEvents
   };
 })();

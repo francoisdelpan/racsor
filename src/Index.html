@@ -7,6 +7,9 @@
   </head>
   <body>
     <div id="app"></div>
+    <script>
+      window.RACSOR_INITIAL_PARAMS = <?!= initialParams || '{}' ?>;
+    </script>
     <?!= include('App'); ?>
   </body>
 </html>
